@@ -1,3 +1,8 @@
+---
+title: "Traefik Command Line Documentation"
+description: "The HTTP chain middleware lets you define reusable combinations of other middleware, to reuse the same groups. Read the technical documentation."
+---
+
 # Chain
 
 When One Isn't Enough
@@ -10,9 +15,9 @@ It makes reusing the same groups easier.
 
 ## Configuration Example
 
-Below is an example of a Chain containing `WhiteList`, `BasicAuth`, and `RedirectScheme`.
+Below is an example of a Chain containing `AllowList`, `BasicAuth`, and `RedirectScheme`.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 labels:
   - "traefik.http.routers.router1.service=service1"
   - "traefik.http.routers.router1.middlewares=secured"
@@ -20,12 +25,12 @@ labels:
   - "traefik.http.middlewares.secured.chain.middlewares=https-only,known-ips,auth-users"
   - "traefik.http.middlewares.auth-users.basicauth.users=test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
   - "traefik.http.middlewares.https-only.redirectscheme.scheme=https"
-  - "traefik.http.middlewares.known-ips.ipwhitelist.sourceRange=192.168.1.7,127.0.0.1/32"
+  - "traefik.http.middlewares.known-ips.ipallowlist.sourceRange=192.168.1.7,127.0.0.1/32"
   - "traefik.http.services.service1.loadbalancer.server.port=80"
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: test
@@ -42,7 +47,7 @@ spec:
       middlewares:
         - name: secured
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: secured
@@ -53,7 +58,7 @@ spec:
     - name: known-ips
     - name: auth-users
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: auth-users
@@ -62,7 +67,7 @@ spec:
     users:
     - test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: https-only
@@ -70,12 +75,12 @@ spec:
   redirectScheme:
     scheme: https
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: known-ips
 spec:
-  ipWhiteList:
+  ipAllowList:
     sourceRange:
     - 192.168.1.7
     - 127.0.0.1/32
@@ -88,33 +93,8 @@ spec:
 - "traefik.http.middlewares.secured.chain.middlewares=https-only,known-ips,auth-users"
 - "traefik.http.middlewares.auth-users.basicauth.users=test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
 - "traefik.http.middlewares.https-only.redirectscheme.scheme=https"
-- "traefik.http.middlewares.known-ips.ipwhitelist.sourceRange=192.168.1.7,127.0.0.1/32"
+- "traefik.http.middlewares.known-ips.ipallowlist.sourceRange=192.168.1.7,127.0.0.1/32"
 - "traefik.http.services.service1.loadbalancer.server.port=80"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.routers.router1.service": "service1",
-  "traefik.http.routers.router1.middlewares": "secured",
-  "traefik.http.routers.router1.rule": "Host(`mydomain`)",
-  "traefik.http.middlewares.secured.chain.middlewares": "https-only,known-ips,auth-users",
-  "traefik.http.middlewares.auth-users.basicauth.users": "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
-  "traefik.http.middlewares.https-only.redirectscheme.scheme": "https",
-  "traefik.http.middlewares.known-ips.ipwhitelist.sourceRange": "192.168.1.7,127.0.0.1/32",
-  "traefik.http.services.service1.loadbalancer.server.port": "80"
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.routers.router1.service=service1"
-  - "traefik.http.routers.router1.middlewares=secured"
-  - "traefik.http.routers.router1.rule=Host(`mydomain`)"
-  - "traefik.http.middlewares.secured.chain.middlewares=https-only,known-ips,auth-users"
-  - "traefik.http.middlewares.auth-users.basicauth.users=test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
-  - "traefik.http.middlewares.https-only.redirectscheme.scheme=https"
-  - "traefik.http.middlewares.known-ips.ipwhitelist.sourceRange=192.168.1.7,127.0.0.1/32"
-  - "traefik.http.services.service1.loadbalancer.server.port=80"
 ```
 
 ```yaml tab="File (YAML)"
@@ -145,7 +125,7 @@ http:
         scheme: https
 
     known-ips:
-      ipWhiteList:
+      ipAllowList:
         sourceRange:
           - "192.168.1.7"
           - "127.0.0.1/32"
@@ -175,7 +155,7 @@ http:
   [http.middlewares.https-only.redirectScheme]
     scheme = "https"
 
-  [http.middlewares.known-ips.ipWhiteList]
+  [http.middlewares.known-ips.ipAllowList]
     sourceRange = ["192.168.1.7", "127.0.0.1/32"]
 
 [http.services]

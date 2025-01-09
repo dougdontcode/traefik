@@ -1,3 +1,8 @@
+---
+title: "Traefik Contribution Documentation"
+description: "Found something unclear in the Traefik Proxy documentation and want to give a try at explaining it better? Read the guide to building documentation."
+---
+
 # Documentation
 
 Features Are Better When You Know How to Use Them
@@ -10,9 +15,13 @@ Let's see how.
 
 ### General
 
-This [documentation](https://doc.traefik.io/traefik/) is built with [mkdocs](https://mkdocs.org/).
+This [documentation](../../ "Link to the official Traefik documentation") is built with [MkDocs](https://mkdocs.org/ "Link to the website of MkDocs").
 
 ### Method 1: `Docker` and `make`
+
+Please make sure you have the following requirements installed:
+
+- [Docker](https://www.docker.com/ "Link to the website of Docker")
 
 You can build the documentation and test it locally (with live reloading), using the `docs-serve` target:
 
@@ -38,9 +47,12 @@ $ make docs-build
 ...
 ```
 
-### Method 2: `mkdocs`
+### Method 2: `MkDocs`
 
-First, make sure you have `python` and `pip` installed.
+Please make sure you have the following requirements installed:
+
+- [Python](https://www.python.org/ "Link to the website of Python")
+- [pip](https://pypi.org/project/pip/ "Link to the website of pip on PyPI")
 
 ```bash
 $ python --version
@@ -49,7 +61,7 @@ $ pip --version
 pip 1.5.2
 ```
 
-Then, install mkdocs with `pip`.
+Then, install MkDocs with `pip`.
 
 ```bash
 pip install --user -r requirements.txt
@@ -82,7 +94,7 @@ Running ["HtmlCheck", "ImageCheck", "ScriptCheck", "LinkCheck"] on /app/site/bas
 
 !!! note "Clean & Verify"
 
-    If you've made changes to the documentation, it's safter to clean it before verifying it.
+    If you've made changes to the documentation, it's safer to clean it before verifying it.
 
     ```bash
     $ make docs

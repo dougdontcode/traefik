@@ -12,10 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ptypes "github.com/traefik/paerser/types"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
-	"github.com/traefik/traefik/v2/pkg/testhelpers"
-	"github.com/vulcand/oxy/utils"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/testhelpers"
+	"github.com/vulcand/oxy/v2/utils"
+	"golang.org/x/time/rate"
 )
+
+const delta float64 = 1e-10
 
 func TestNewRateLimiter(t *testing.T) {
 	testCases := []struct {
@@ -25,7 +28,16 @@ func TestNewRateLimiter(t *testing.T) {
 		expectedSourceIP string
 		requestHeader    string
 		expectedError    string
+		expectedRTL      rate.Limit
 	}{
+		{
+			desc: "no ratelimit on Average == 0",
+			config: dynamic.RateLimit{
+				Average: 0,
+				Burst:   10,
+			},
+			expectedRTL: rate.Inf,
+		},
 		{
 			desc: "maxDelay computation",
 			config: dynamic.RateLimit{
@@ -77,7 +89,6 @@ func TestNewRateLimiter(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -119,6 +130,9 @@ func TestNewRateLimiter(t *testing.T) {
 				hd, _, err := extractor(&req)
 				assert.NoError(t, err)
 				assert.Equal(t, test.requestHeader, hd)
+			}
+			if test.expectedRTL != 0 {
+				assert.InDelta(t, float64(test.expectedRTL), float64(rtl.rate), delta)
 			}
 		})
 	}
@@ -233,7 +247,6 @@ func TestRateLimit(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			if test.loadDuration >= time.Minute && testing.Short() {
 				t.Skip("skipping test in short mode.")

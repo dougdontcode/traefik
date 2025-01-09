@@ -1,3 +1,8 @@
+---
+title: "Traefik Services Documentation"
+description: "Learn how to configure routing and load balancing in Traefik Proxy to reach Services, which handle incoming requests. Read the technical documentation."
+---
+
 # Services
 
 Configuring How to Reach the Services
@@ -111,12 +116,8 @@ Each service has a load-balancer, even if there is only one server to forward tr
 #### Servers
 
 Servers declare a single instance of your program.
-The `url` option point to a specific instance.
 
-!!! info ""
-    Paths in the servers' `url` have no effect.
-    If you want the requests to be sent to a specific path on your servers,
-    configure your [`routers`](../routers/index.md) to use a corresponding [middleware](../../middlewares/overview.md) (e.g. the [AddPrefix](../../middlewares/http/addprefix.md) or [ReplacePath](../../middlewares/http/replacepath.md)) middlewares.
+The `url` option point to a specific instance.
 
 ??? example "A Service with One Server -- Using the [File Provider](../../providers/file.md)"
 
@@ -136,6 +137,64 @@ The `url` option point to a specific instance.
       [http.services.my-service.loadBalancer]
         [[http.services.my-service.loadBalancer.servers]]
           url = "http://private-ip-server-1/"
+    ```
+
+The `weight` option allows for weighted load balancing on the servers.
+
+??? example "A Service with Two Servers with Weight -- Using the [File Provider](../../providers/file.md)"
+
+    ```yaml tab="YAML"
+    ## Dynamic configuration
+    http:
+      services:
+        my-service:
+          loadBalancer:
+            servers:
+              - url: "http://private-ip-server-1/"
+                weight: 2
+              - url: "http://private-ip-server-2/"
+                weight: 1
+
+    ```
+
+    ```toml tab="TOML"
+    ## Dynamic configuration
+    [http.services]
+      [http.services.my-service.loadBalancer]
+        [[http.services.my-service.loadBalancer.servers]]
+          url = "http://private-ip-server-1/"
+          weight = 2
+        [[http.services.my-service.loadBalancer.servers]]
+          url = "http://private-ip-server-2/"
+          weight = 1
+    ```
+
+The `preservePath` option allows to preserve the URL path.
+
+!!! info "Health Check"
+
+    When a [health check](#health-check) is configured for the server, the path is not preserved.
+
+??? example "A Service with One Server and PreservePath -- Using the [File Provider](../../providers/file.md)"
+
+    ```yaml tab="YAML"
+    ## Dynamic configuration
+    http:
+      services:
+        my-service:
+          loadBalancer:
+            servers:
+              - url: "http://private-ip-server-1/base"
+                preservePath: true
+    ```
+
+    ```toml tab="TOML"
+    ## Dynamic configuration
+    [http.services]
+      [http.services.my-service.loadBalancer]
+        [[http.services.my-service.loadBalancer.servers]]
+          url = "http://private-ip-server-1/base"
+          preservePath = true
     ```
 
 #### Load-balancing
@@ -182,6 +241,13 @@ On subsequent requests, to keep the session alive with the same server, the clie
 
     The default cookie name is an abbreviation of a sha1 (ex: `_1d52e`).
 
+!!! info "MaxAge"
+
+    By default, the affinity cookie will never expire as the `MaxAge` option is set to zero.
+
+    This option indicates the number of seconds until the cookie expires.  
+    When set to a negative number, the cookie expires immediately.
+    
 !!! info "Secure & HTTPOnly & SameSite flags"
 
     By default, the affinity cookie is created without those flags.
@@ -311,36 +377,39 @@ On subsequent requests, to keep the session alive with the same server, the clie
 #### Health Check
 
 Configure health check to remove unhealthy servers from the load balancing rotation.
-Traefik will consider your servers healthy as long as they return status codes between `2XX` and `3XX` to the health check requests (carried out every `interval`).
+Traefik will consider HTTP(s) servers healthy as long as they return a status code to the health check request (carried out every `interval`) between `2XX` and `3XX`, or matching the configured status.
+For gRPC servers, Traefik will consider them healthy as long as they return `SERVING` to [gRPC health check v1](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) requests.
 
 To propagate status changes (e.g. all servers of this service are down) upwards, HealthCheck must also be enabled on the parent(s) of this service.
 
 Below are the available options for the health check mechanism:
 
-- `path` is appended to the server URL to set the health check endpoint.
-- `scheme`, if defined, will replace the server URL `scheme` for the health check endpoint
-- `hostname`, if defined, will apply `Host` header `hostname` to the health check request.
-- `port`, if defined, will replace the server URL `port` for the health check endpoint.
-- `interval` defines the frequency of the health check calls.
-- `timeout` defines the maximum duration Traefik will wait for a health check request before considering the server failed (unhealthy).
-- `headers` defines custom headers to be sent to the health check endpoint.
-- `followRedirects` defines whether redirects should be followed during the health check calls (default: true).
+- `path` (required), defines the server URL path for the health check endpoint .
+- `scheme` (optional), replaces the server URL `scheme` for the health check endpoint.
+- `mode` (default: http), if defined to `grpc`, will use the gRPC health check protocol to probe the server.
+- `hostname` (optional), sets the value of `hostname` in the `Host` header of the health check request.
+- `port` (optional), replaces the server URL `port` for the health check endpoint.
+- `interval` (default: 30s), defines the frequency of the health check calls.
+- `timeout` (default: 5s), defines the maximum duration Traefik will wait for a health check request before considering the server unhealthy.
+- `headers` (optional), defines custom headers to be sent to the health check endpoint.
+- `followRedirects` (default: true), defines whether redirects should be followed during the health check calls.
+- `method` (default: GET), defines the HTTP method that will be used while connecting to the endpoint.
+- `status` (optional), defines the expected HTTP status code of the response to the health check request.
 
 !!! info "Interval & Timeout Format"
 
     Interval and timeout are to be given in a format understood by [time.ParseDuration](https://golang.org/pkg/time/#ParseDuration).
-    The interval must be greater than the timeout. If configuration doesn't reflect this, the interval will be set to timeout + 1 second.
 
 !!! info "Recovering Servers"
 
     Traefik keeps monitoring the health of unhealthy servers.
     If a server has recovered (returning `2xx` -> `3xx` responses again), it will be added back to the load balancer rotation pool.
 
-!!! warning "Health check in Kubernetes"
+!!! warning "Health check with Kubernetes"
 
-    The Traefik health check is not available for `kubernetesCRD` and `kubernetesIngress` providers because Kubernetes
-    already has a health check mechanism.
-    Unhealthy pods will be removed by kubernetes. (cf [liveness documentation](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-a-liveness-http-request))
+    Kubernetes has an health check mechanism to remove unhealthy pods from Kubernetes services (cf [readiness probe](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-readiness-probes)).
+    As unhealthy pods have no Kubernetes endpoints, Traefik will not forward traffic to them.
+    Therefore, Traefik health check is not available for `kubernetesCRD` and `kubernetesIngress` providers.
 
 ??? example "Custom Interval & Timeout -- Using the [File Provider](../../providers/file.md)"
 
@@ -464,9 +533,9 @@ By default, `passHostHeader` is true.
 
 #### ServersTransport
 
-`serversTransport` allows to reference a [ServersTransport](./index.md#serverstransport_1) configuration for the communication between Traefik and your servers.
+`serversTransport` allows to reference an [HTTP ServersTransport](./index.md#serverstransport_1) configuration for the communication between Traefik and your servers.
 
-??? example "Specify a transport -- Using the [File Provider](../../providers/file.md)"
+??? example "Specify an HTTP transport -- Using the [File Provider](../../providers/file.md)"
 
     ```yaml tab="YAML"
     ## Dynamic configuration
@@ -485,9 +554,9 @@ By default, `passHostHeader` is true.
           serversTransport = "mytransport"
     ```
 
-!!! info default serversTransport
+!!! info Default Servers Transport
     If no serversTransport is specified, the `default@internal` will be used.
-    The `default@internal` serversTransport is created from the [static configuration](../overview.md#transport-configuration).
+    The `default@internal` serversTransport is created from the [static configuration](../overview.md#http-servers-transports).
 
 #### Response Forwarding
 
@@ -523,9 +592,9 @@ Below are the available options for the Response Forwarding mechanism:
 
 ### ServersTransport
 
-ServersTransport allows to configure the transport between Traefik and your servers.
+ServersTransport allows to configure the transport between Traefik and your HTTP servers.
 
-#### `ServerName`
+#### `serverName`
 
 _Optional_
 
@@ -546,17 +615,17 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    serverName: "test"
+  serverName: "test"
 ```
 
-#### `Certificates`
+#### `certificates`
 
 _Optional_
 
@@ -581,14 +650,14 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    certificatesSecrets:
+  certificatesSecrets:
     - mycert
 
 ---
@@ -597,9 +666,9 @@ kind: Secret
 metadata:
   name: mycert
 
-  data:
-    tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0=
-    tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0=
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0=
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0=
 ```
 
 #### `insecureSkipVerify`
@@ -623,14 +692,14 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    insecureSkipVerify: true
+  insecureSkipVerify: true
 ```
 
 #### `rootCAs`
@@ -656,14 +725,14 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    rootCAsSecrets:
+  rootCAsSecrets:
     - myca
 ---
 apiVersion: v1
@@ -671,8 +740,8 @@ kind: Secret
 metadata:
   name: myca
 
-  data:
-    tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0=
+data:
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0=
 ```
 
 #### `maxIdleConnsPerHost`
@@ -696,14 +765,14 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    maxIdleConnsPerHost: 7
+  maxIdleConnsPerHost: 7
 ```
 
 #### `disableHTTP2`
@@ -711,12 +780,6 @@ spec:
 _Optional, Default=false_
 
 `disableHTTP2` disables HTTP/2 for connections with servers.
-
-```toml tab="File (TOML)"
-## Dynamic configuration
-[http.serversTransports.mytransport]
-  disableHTTP2 = true
-```
 
 ```yaml tab="File (YAML)"
 ## Dynamic configuration
@@ -726,28 +789,28 @@ http:
       disableHTTP2: true
 ```
 
+```toml tab="File (TOML)"
+## Dynamic configuration
+[http.serversTransports.mytransport]
+  disableHTTP2 = true
+```
+
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    disableHTTP2: true
+  disableHTTP2: true
 ```
 
 #### `peerCertURI`
 
-_Optional, Default=false_
+_Optional, Default=""_
 
 `peerCertURI` defines the URI used to match against SAN URIs during the server's certificate verification.
-
-```toml tab="File (TOML)"
-## Dynamic configuration
-[http.serversTransports.mytransport]
-  peerCertURI = "foobar"
-```
 
 ```yaml tab="File (YAML)"
 ## Dynamic configuration
@@ -757,15 +820,97 @@ http:
       peerCertURI: foobar
 ```
 
+```toml tab="File (TOML)"
+## Dynamic configuration
+[http.serversTransports.mytransport]
+  peerCertURI = "foobar"
+```
+
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    peerCertURI: foobar
+  peerCertURI: foobar
+```
+
+#### `spiffe`
+
+Please note that [SPIFFE](../../https/spiffe.md) must be enabled in the static configuration
+before using it to secure the connection between Traefik and the backends.
+
+##### `spiffe.ids`
+
+_Optional_
+
+`ids` defines the allowed SPIFFE IDs. 
+This takes precedence over the SPIFFE TrustDomain.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+http:
+  serversTransports:
+    mytransport:
+      spiffe:
+        ids:
+          - spiffe://trust-domain/id1
+          - spiffe://trust-domain/id2
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[http.serversTransports.mytransport.spiffe]
+  ids = ["spiffe://trust-domain/id1", "spiffe://trust-domain/id2"]
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+    spiffe:
+      ids:
+        - spiffe://trust-domain/id1
+        - spiffe://trust-domain/id2
+```
+
+##### `spiffe.trustDomain`
+
+_Optional_
+
+`trustDomain` defines the allowed SPIFFE trust domain.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+http:
+  serversTransports:
+    mytransport:
+        spiffe:
+          trustDomain: spiffe://trust-domain
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[http.serversTransports.mytransport.spiffe]
+  trustDomain = "spiffe://trust-domain"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+    spiffe:
+      trustDomain: "spiffe://trust-domain"
 ```
 
 #### `forwardingTimeouts`
@@ -795,7 +940,7 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
@@ -831,15 +976,15 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    forwardingTimeouts:
-      responseHeaderTimeout: "1s"
+  forwardingTimeouts:
+    responseHeaderTimeout: "1s"
 ```
 
 ##### `forwardingTimeouts.idleConnTimeout`
@@ -865,15 +1010,87 @@ http:
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: ServersTransport
 metadata:
   name: mytransport
   namespace: default
 
 spec:
-    forwardingTimeouts:
-      idleConnTimeout: "1s"
+  forwardingTimeouts:
+    idleConnTimeout: "1s"
+```
+
+##### `forwardingTimeouts.readIdleTimeout`
+
+_Optional, Default=0s_
+
+`readIdleTimeout` is the timeout after which a health check using ping frame will be carried out
+if no frame is received on the HTTP/2 connection.
+Note that a ping response will be considered a received frame,
+so if there is no other traffic on the connection,
+the health check will be performed every `readIdleTimeout` interval.
+If zero, no health check is performed.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+http:
+  serversTransports:
+    mytransport:
+      forwardingTimeouts:
+        readIdleTimeout: "1s"
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[http.serversTransports.mytransport.forwardingTimeouts]
+  readIdleTimeout = "1s"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  forwardingTimeouts:
+    readIdleTimeout: "1s"
+```
+
+##### `forwardingTimeouts.pingTimeout`
+
+_Optional, Default=15s_
+
+`pingTimeout` is the timeout after which the HTTP/2 connection will be closed
+if a response to ping is not received.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+http:
+  serversTransports:
+    mytransport:
+      forwardingTimeouts:
+        pingTimeout: "1s"
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[http.serversTransports.mytransport.forwardingTimeouts]
+  pingTimeout = "1s"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  forwardingTimeouts:
+    pingTimeout: "1s"
 ```
 
 ### Weighted Round Robin (service)
@@ -1014,6 +1231,7 @@ http:
 The mirroring is able to mirror requests sent to a service to other services.
 Please note that by default the whole request is buffered in memory while it is being mirrored.
 See the maxBodySize option in the example below for how to modify this behaviour.
+You can also omit the request body by setting the mirrorBody option to `false`.
 
 !!! info "Supported Providers"
 
@@ -1026,6 +1244,9 @@ http:
     mirrored-api:
       mirroring:
         service: appv1
+        # mirrorBody defines whether the request body should be mirrored.
+        # Default value is true.
+        mirrorBody: false
         # maxBodySize is the maximum size allowed for the body of the request.
         # If the body is larger, the request is not mirrored.
         # Default value is -1, which means unlimited size.
@@ -1055,6 +1276,9 @@ http:
       # If the body is larger, the request is not mirrored.
       # Default value is -1, which means unlimited size.
       maxBodySize = 1024
+      # mirrorBody defines whether the request body should be mirrored.
+      # Default value is true.
+      mirrorBody = false
     [[http.services.mirrored-api.mirroring.mirrors]]
       name = "appv2"
       percent = 10
@@ -1140,6 +1364,139 @@ http:
         url = "http://private-ip-server-2/"
 ```
 
+### Failover (service)
+
+A failover service job is to forward all requests to a fallback service when the main service becomes unreachable.
+
+!!! info "Relation to HealthCheck"
+
+    The failover service relies on the HealthCheck system to get notified when its main service becomes unreachable,
+    which means HealthCheck needs to be enabled and functional on the main service.
+    However, HealthCheck does not need to be enabled on the failover service itself for it to be functional.
+    It is only required in order to propagate upwards the information when the failover itself becomes down
+    (i.e. both its main and its fallback are down too).
+
+!!! info "Supported Providers"
+
+    This strategy can currently only be defined with the [File](../../providers/file.md) provider.
+
+```yaml tab="YAML"
+## Dynamic configuration
+http:
+  services:
+    app:
+      failover:
+        service: main
+        fallback: backup
+
+    main:
+      loadBalancer:
+        healthCheck:
+          path: /status
+          interval: 10s
+          timeout: 3s
+        servers:
+        - url: "http://private-ip-server-1/"
+
+    backup:
+      loadBalancer:
+        servers:
+        - url: "http://private-ip-server-2/"
+```
+
+```toml tab="TOML"
+## Dynamic configuration
+[http.services]
+  [http.services.app]
+    [http.services.app.failover]
+      service = "main"
+      fallback = "backup"
+
+  [http.services.main]
+    [http.services.main.loadBalancer]
+      [http.services.main.loadBalancer.healthCheck]
+        path = "/health"
+        interval = "10s"
+        timeout = "3s"
+      [[http.services.main.loadBalancer.servers]]
+        url = "http://private-ip-server-1/"
+
+  [http.services.backup]
+    [http.services.backup.loadBalancer]
+      [[http.services.backup.loadBalancer.servers]]
+        url = "http://private-ip-server-2/"
+```
+
+#### Health Check
+
+HealthCheck enables automatic self-healthcheck for this service,
+i.e. if the main and the fallback services become unreachable,
+the information is propagated upwards to its parent.
+
+!!! info "All or nothing"
+
+    If HealthCheck is enabled for a given service, but any of its descendants does
+    not have it enabled, the creation of the service will fail.
+
+    HealthCheck on a Failover service can currently only be defined with the [File](../../providers/file.md) provider.
+
+```yaml tab="YAML"
+## Dynamic configuration
+http:
+  services:
+    app:
+      failover:
+        healthCheck: {}
+        service: main
+        fallback: backup
+
+    main:
+      loadBalancer:
+        healthCheck:
+          path: /status
+          interval: 10s
+          timeout: 3s
+        servers:
+        - url: "http://private-ip-server-1/"
+
+    backup:
+      loadBalancer:
+        healthCheck:
+          path: /status
+          interval: 10s
+          timeout: 3s
+        servers:
+        - url: "http://private-ip-server-2/"
+```
+
+```toml tab="TOML"
+## Dynamic configuration
+[http.services]
+  [http.services.app]
+    [http.services.app.failover.healthCheck]
+    [http.services.app.failover]
+      service = "main"
+      fallback = "backup"
+
+  [http.services.main]
+    [http.services.main.loadBalancer]
+      [http.services.main.loadBalancer.healthCheck]
+        path = "/health"
+        interval = "10s"
+        timeout = "3s"
+      [[http.services.main.loadBalancer.servers]]
+        url = "http://private-ip-server-1/"
+
+  [http.services.backup]
+    [http.services.backup.loadBalancer]
+      [http.services.backup.loadBalancer.healthCheck]
+        path = "/health"
+        interval = "10s"
+        timeout = "3s"
+      [[http.services.backup.loadBalancer.servers]]
+        url = "http://private-ip-server-2/"
+```
+
 ## Configuring TCP Services
 
 ### General
@@ -1179,6 +1536,9 @@ The servers load balancer is in charge of balancing the requests between the ser
 #### Servers
 
 Servers declare a single instance of your program.
+
+#### `address`
+
 The `address` option (IP:Port) point to a specific instance.
 
 ??? example "A Service with One Server -- Using the [File Provider](../../providers/file.md)"
@@ -1200,6 +1560,60 @@ The `address` option (IP:Port) point to a specific instance.
         [[tcp.services.my-service.loadBalancer.servers]]
           address = "xx.xx.xx.xx:xx"
     ```
+
+#### `tls`
+
+The `tls` determines whether to use TLS when dialing with the backend.
+
+??? example "A Service with One Server Using TLS -- Using the [File Provider](../../providers/file.md)"
+
+    ```yaml tab="YAML"
+    ## Dynamic configuration
+    tcp:
+      services:
+        my-service:
+          loadBalancer:
+            servers:
+              - address: "xx.xx.xx.xx:xx"
+                tls: true
+    ```
+
+    ```toml tab="TOML"
+    ## Dynamic configuration
+    [tcp.services]
+      [tcp.services.my-service.loadBalancer]
+        [[tcp.services.my-service.loadBalancer.servers]]
+          address = "xx.xx.xx.xx:xx"
+          tls = true
+    ```
+
+#### ServersTransport
+
+`serversTransport` allows to reference a [TCP ServersTransport](./index.md#serverstransport_3) configuration for the communication between Traefik and your servers.
+
+??? example "Specify a TCP transport -- Using the [File Provider](../../providers/file.md)"
+
+    ```yaml tab="YAML"
+    ## Dynamic configuration
+    tcp:
+      services:
+        Service01:
+          loadBalancer:
+            serversTransport: mytransport
+    ```
+
+    ```toml tab="TOML"
+    ## Dynamic configuration
+    [tcp.services]
+      [tcp.services.Service01]
+        [tcp.services.Service01.loadBalancer]
+          serversTransport = "mytransport"
+    ```
+
+!!! info "Default Servers Transport"
+
+    If no serversTransport is specified, the `default@internal` will be used.
+    The `default@internal` serversTransport is created from the [static configuration](../overview.md#tcp-servers-transports).
 
 #### PROXY Protocol
 
@@ -1235,6 +1649,13 @@ Below are the available options for the PROXY protocol:
     ```
 
 #### Termination Delay
+
+!!! warning
+
+    Deprecated in favor of [`serversTransport.terminationDelay`](#terminationdelay).
+    Please note that if any `serversTransport` configuration on the servers load balancer is found,
+    it will take precedence over the servers load balancer `terminationDelay` value,
+    even if the `serversTransport.terminationDelay` is undefined.
 
 As a proxy between a client and a server, it can happen that either side (e.g. client side) decides to terminate its writing capability on the connection (i.e. issuance of a FIN packet).
 The proxy needs to propagate that intent to the other side, and so when that happens, it also does the same on its connection with the other side (e.g. backend side).
@@ -1320,6 +1741,414 @@ tcp:
     [tcp.services.appv2.loadBalancer]
       [[tcp.services.appv2.loadBalancer.servers]]
         address = "private-ip-server-2:8080/"
+```
+
+### ServersTransport
+
+ServersTransport allows to configure the transport between Traefik and your TCP servers.
+
+#### `dialTimeout`
+
+_Optional, Default="30s"_
+
+`dialTimeout` defines the timeout when dialing the backend TCP service. If zero, no timeout exists.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      dialTimeout: 30s
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport]
+  dialTimeout = "30s"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  dialTimeout: 30s
+```
+
+#### `dialKeepAlive`
+
+_Optional, Default="15s"_
+
+`dialKeepAlive` defines the interval between keep-alive probes for an active network connection.
+If zero, keep-alive probes are sent with a default value (currently 15 seconds), if supported by the protocol and
+operating system. Network protocols or operating systems that do not support keep-alives ignore this field. If negative,
+keep-alive probes are disabled.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      dialKeepAlive: 30s
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport]
+  dialKeepAlive = "30s"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  dialKeepAlive: 30s
+```
+
+#### `terminationDelay`
+
+_Optional, Default="100ms"_
+
+As a proxy between a client and a server, it can happen that either side (e.g. client side) decides to terminate its writing capability on the connection (i.e. issuance of a FIN packet).
+The proxy needs to propagate that intent to the other side, and so when that happens, it also does the same on its connection with the other side (e.g. backend side).
+
+However, if for some reason (bad implementation, or malicious intent) the other side does not eventually do the same as well,
+the connection would stay half-open, which would lock resources for however long.
+
+To that end, as soon as the proxy enters this termination sequence, it sets a deadline on fully terminating the connections on both sides.
+
+The termination delay controls that deadline.
+A negative value means an infinite deadline (i.e. the connection is never fully terminated by the proxy itself).
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      terminationDelay: 100ms
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport]
+  terminationDelay = "100ms"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  terminationDelay: 100ms
+```
+
+#### `tls`
+
+`tls` defines the TLS configuration.
+
+_Optional_
+
+An empty `tls` section enables TLS.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      tls: {}
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport.tls]
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  tls: {}
+```
+
+#### `tls.serverName`
+
+_Optional_
+
+`tls.serverName` configure the server name that will be used for SNI.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      tls:
+        serverName: "myhost"
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport.tls]
+  serverName = "myhost"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  tls:
+    serverName: "test"
+```
+
+#### `tls.certificates`
+
+_Optional_
+
+`tls.certificates` is the list of certificates (as file paths, or data bytes)
+that will be set as client certificates for mTLS.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      tls:
+        certificates:
+          - certFile: foo.crt
+            keyFile: bar.crt
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[[tcp.serversTransports.mytransport.tls.certificates]]
+  certFile = "foo.crt"
+  keyFile = "bar.crt"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  tls:
+    certificatesSecrets:
+      - mycert
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mycert
+
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0=
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0=
+```
+
+#### `tls.insecureSkipVerify`
+
+_Optional_
+
+`tls.insecureSkipVerify` controls whether the server's certificate chain and host name is verified.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      tls:
+        insecureSkipVerify: true
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport.tls]
+  insecureSkipVerify = true
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  tls:
+    insecureSkipVerify: true
+```
+
+#### `tls.rootCAs`
+
+_Optional_
+
+`tls.rootCAs` defines the set of root certificate authorities (as file paths, or data bytes) to use when verifying server certificates.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      tls:
+        rootCAs:
+          - foo.crt
+          - bar.crt
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport.tls]
+  rootCAs = ["foo.crt", "bar.crt"]
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  tls:
+    rootCAsSecrets:
+      - myca
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myca
+
+data:
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0=
+```
+
+#### `tls.peerCertURI`
+
+_Optional, Default=false_
+
+`tls.peerCertURI` defines the URI used to match against SAN URIs during the server's certificate verification.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      tls:
+        peerCertURI: foobar
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport.tls]
+  peerCertURI = "foobar"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+  tls:
+    peerCertURI: foobar
+```
+
+#### `spiffe`
+
+Please note that [SPIFFE](../../https/spiffe.md) must be enabled in the static configuration
+before using it to secure the connection between Traefik and the backends.
+
+##### `spiffe.ids`
+
+_Optional_
+
+`ids` defines the allowed SPIFFE IDs.
+This takes precedence over the SPIFFE TrustDomain.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+      spiffe:
+        ids:
+          - spiffe://trust-domain/id1
+          - spiffe://trust-domain/id2
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport.spiffe]
+  ids = ["spiffe://trust-domain/id1", "spiffe://trust-domain/id2"]
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+    spiffe:
+      ids:
+        - spiffe://trust-domain/id1
+        - spiffe://trust-domain/id2
+```
+
+##### `spiffe.trustDomain`
+
+_Optional_
+
+`trustDomain` defines the allowed SPIFFE trust domain.
+
+```yaml tab="File (YAML)"
+## Dynamic configuration
+tcp:
+  serversTransports:
+    mytransport:
+        spiffe:
+          trustDomain: spiffe://trust-domain
+```
+
+```toml tab="File (TOML)"
+## Dynamic configuration
+[tcp.serversTransports.mytransport.spiffe]
+  trustDomain = "spiffe://trust-domain"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransportTCP
+metadata:
+  name: mytransport
+  namespace: default
+
+spec:
+    spiffe:
+      trustDomain: "spiffe://trust-domain"
 ```
 
 ## Configuring UDP Services
@@ -1435,3 +2264,5 @@ udp:
       [[udp.services.appv2.loadBalancer.servers]]
         address = "private-ip-server-2:8080/"
 ```
+
+{!traefik-for-business-applications.md!}

@@ -1,23 +1,40 @@
 <template>
-  <q-card flat bordered v-bind:class="['panel-service-details', {'panel-service-details-dense':isDense}]">
-    <q-scroll-area :thumb-style="appThumbStyle" style="height:100%;">
+  <q-card
+    flat
+    bordered
+    :class="['panel-service-details', {'panel-service-details-dense':isDense}]"
+  >
+    <q-scroll-area
+      :thumb-style="appThumbStyle"
+      style="height:100%;"
+    >
       <q-card-section>
         <div class="row items-start no-wrap">
-          <div class="col" v-if="data.type">
-            <div class="text-subtitle2">TYPE</div>
+          <div
+            v-if="data.type"
+            class="col"
+          >
+            <div class="text-subtitle2">
+              TYPE
+            </div>
             <q-chip
               dense
-              class="app-chip app-chip-entry-points">
+              class="app-chip app-chip-entry-points"
+            >
               {{ data.type }}
             </q-chip>
           </div>
           <div class="col">
-            <div class="text-subtitle2">PROVIDER</div>
+            <div class="text-subtitle2">
+              PROVIDER
+            </div>
             <div class="block-right-text">
               <q-avatar class="provider-logo">
                 <q-icon :name="`img:${getProviderLogoPath}`" />
               </q-avatar>
-              <div class="block-right-text-label">{{data.provider}}</div>
+              <div class="block-right-text-label">
+                {{ data.provider }}
+              </div>
             </div>
           </div>
         </div>
@@ -25,10 +42,14 @@
       <q-card-section>
         <div class="row items-start no-wrap">
           <div class="col">
-            <div class="text-subtitle2">STATUS</div>
+            <div class="text-subtitle2">
+              STATUS
+            </div>
             <div class="block-right-text">
-              <avatar-state :state="data.status | status "/>
-              <div v-bind:class="['block-right-text-label', `block-right-text-label-${data.status}`]">{{data.status | statusLabel}}</div>
+              <avatar-state :state="status(data.status)" />
+              <div :class="['block-right-text-label', `block-right-text-label-${data.status}`]">
+                {{ statusLabel(data.status) }}
+              </div>
             </div>
           </div>
         </div>
@@ -36,11 +57,15 @@
       <q-card-section v-if="data.mirroring">
         <div class="row items-start no-wrap">
           <div class="col">
-            <div class="text-subtitle2">Main Service</div>
+            <div class="text-subtitle2">
+              Main Service
+            </div>
             <q-chip
               dense
-              class="app-chip app-chip-name">
+              class="app-chip app-chip-name app-chip-overflow"
+            >
               {{ data.mirroring.service }}
+              <q-tooltip>{{ data.mirroring.service }}</q-tooltip>
             </q-chip>
           </div>
         </div>
@@ -48,21 +73,10 @@
       <q-card-section v-if="data.loadBalancer && $route.meta.protocol !== 'tcp'">
         <div class="row items-start no-wrap">
           <div class="col">
-            <div class="text-subtitle2">Pass Host Header</div>
-            <boolean-state :value="data.loadBalancer.passHostHeader"/>
-          </div>
-        </div>
-      </q-card-section>
-
-      <q-card-section v-if="data.loadBalancer && data.loadBalancer.terminationDelay">
-        <div class="row items-start no-wrap">
-          <div class="col">
-            <div class="text-subtitle2">Termination Delay</div>
-            <q-chip
-              dense
-              class="app-chip app-chip-name">
-              {{ data.loadBalancer.terminationDelay }} ms
-            </q-chip>
+            <div class="text-subtitle2">
+              Pass Host Header
+            </div>
+            <boolean-state :value="data.loadBalancer.passHostHeader" />
           </div>
         </div>
       </q-card-section>
@@ -70,34 +84,79 @@
       <q-card-section v-if="data.loadBalancer && data.loadBalancer.proxyProtocol">
         <div class="row items-start no-wrap">
           <div class="col">
-            <div class="text-subtitle2">Proxy Protocol</div>
+            <div class="text-subtitle2">
+              Proxy Protocol
+            </div>
             <q-chip
               dense
-              class="app-chip app-chip-name">
+              class="app-chip app-chip-name"
+            >
               Version {{ data.loadBalancer.proxyProtocol.version }}
             </q-chip>
           </div>
         </div>
       </q-card-section>
 
+      <q-card-section v-if="data.failover && data.failover.service">
+        <div class="row items-start no-wrap">
+          <div class="col">
+            <div class="text-subtitle2">
+              Main Service
+            </div>
+            <q-chip
+              dense
+              class="app-chip app-chip-name app-chip-overflow"
+            >
+              {{ data.failover.service }}
+              <q-tooltip>{{ data.failover.service }}</q-tooltip>
+            </q-chip>
+          </div>
+        </div>
+      </q-card-section>
+
+      <q-card-section v-if="data.failover && data.failover.fallback">
+        <div class="row items-start no-wrap">
+          <div class="col">
+            <div class="text-subtitle2">
+              Fallback Service
+            </div>
+            <q-chip
+              dense
+              class="app-chip app-chip-name app-chip-overflow"
+            >
+              {{ data.failover.fallback }}
+              <q-tooltip>{{ data.failover.fallback }}</q-tooltip>
+            </q-chip>
+          </div>
+        </div>
+      </q-card-section>
+
       <q-separator v-if="sticky" />
-      <StickyServiceDetails v-if="sticky" :sticky="sticky" :dense="dense"/>
+      <StickyServiceDetails
+        v-if="sticky"
+        :sticky="sticky"
+        :dense="dense"
+      />
     </q-scroll-area>
   </q-card>
 </template>
 
 <script>
-import AvatarState from './AvatarState'
-import BooleanState from './BooleanState'
-import StickyServiceDetails from './StickyServiceDetails'
+import { defineComponent } from 'vue'
+import AvatarState from './AvatarState.vue'
+import BooleanState from './BooleanState.vue'
+import StickyServiceDetails from './StickyServiceDetails.vue'
 
-export default {
+export default defineComponent({
   name: 'PanelServiceDetails',
-  props: ['data', 'dense'],
   components: {
     BooleanState,
     AvatarState,
     StickyServiceDetails
+  },
+  props: {
+    data: { type: Object, default: undefined, required: false },
+    dense: Boolean
   },
   computed: {
     isDense () {
@@ -117,14 +176,23 @@ export default {
     getProviderLogoPath () {
       const name = this.data.provider.toLowerCase()
 
-      if (name.includes('plugin-')) {
-        return 'statics/providers/plugin.svg'
+      if (name.startsWith('plugin-')) {
+        return 'providers/plugin.svg'
+      }
+      if (name.startsWith('consul-')) {
+        return 'providers/consul.svg'
+      }
+      if (name.startsWith('consulcatalog-')) {
+        return 'providers/consulcatalog.svg'
+      }
+      if (name.startsWith('nomad-')) {
+        return 'providers/nomad.svg'
       }
 
-      return `statics/providers/${name}.svg`
+      return `providers/${name}.svg`
     }
   },
-  filters: {
+  methods: {
     status (value) {
       if (value === 'enabled') {
         return 'positive'
@@ -144,7 +212,7 @@ export default {
       return value || 'error'
     }
   }
-}
+})
 </script>
 
 <style scoped lang="scss">

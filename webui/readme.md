@@ -14,50 +14,50 @@ Traefik Web UI provide 2 types of information:
 Use the make file :
 
 ```shell
-make build-image      # Generate Docker image
-make generate-webui   # Generate static contents in `traefik/webui/static/` folder.
+make build-image                # Generate Docker image.
+make clean-webui generate-webui # Generate static contents in `webui/static/` folder.
 ```
 
 ## How to build (only for frontend developer)
 
-- prerequisite: [Node 12.11+](https://nodejs.org) [Npm](https://www.npmjs.com/)
+- prerequisite: [Node 20.14+](https://nodejs.org) [Yarn 1.22.22](https://yarnpkg.com/)
 
-- Go to the `webui` directory
+- Go to the `webui/` directory
 
 - To install dependencies, execute the following commands:
 
-  - `npm install`
+  - `yarn install`
 
 - Build static Web UI, execute the following command:
 
-  - `npm run build`
+  - `yarn build`
 
-- Static contents are built in the `webui/static` directory
+- Static contents are built in the `webui/static/` directory
 
-**Do not manually change the files in the `webui/static` directory**
+**Do not manually change the files in the `webui/static/` directory**
 
 - The build allows to:
   - optimize all JavaScript
   - optimize all CSS
-  - add vendor prefixes to CSS (cross-bowser support)
+  - add vendor prefixes to CSS (cross-browser support)
   - add a hash in the file names to prevent browser cache problems
   - optimize all images at build time
   - bundle JavaScript in one file
 
 ## How to edit (only for frontend developer)
 
-**Do not manually change the files in the `webui/static` directory**
+**Do not manually change the files in the `webui/static/` directory**
 
-- Go to the `webui` directory
-- Edit files in `webui/src`
+- Go to the `webui/` directory
+- Edit files in `webui/src/`
 - Run in development mode :
-  - `npm run dev`
+  - `yarn dev`
 
 ## Libraries
 
 - [Node](https://nodejs.org)
-- [Npm](https://www.npmjs.com/)
-- [Webpack](https://github.com/webpack/webpack)
+- [Yarn](https://yarnpkg.com/)
+- [Quasar](https://quasar.dev/)
 - [Vue](https://vuejs.org/)
 - [Bulma](https://bulma.io)
 - [D3](https://d3js.org)

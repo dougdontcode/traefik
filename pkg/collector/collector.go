@@ -10,36 +10,50 @@ import (
 	"time"
 
 	"github.com/mitchellh/hashstructure"
-	"github.com/traefik/traefik/v2/pkg/anonymize"
-	"github.com/traefik/traefik/v2/pkg/config/static"
-	"github.com/traefik/traefik/v2/pkg/log"
-	"github.com/traefik/traefik/v2/pkg/version"
+	"github.com/rs/zerolog/log"
+	"github.com/traefik/traefik/v3/pkg/config/static"
+	"github.com/traefik/traefik/v3/pkg/redactor"
+	"github.com/traefik/traefik/v3/pkg/version"
 )
 
-// collectorURL URL where the stats are send.
-const collectorURL = "https://collect.traefik.io/9vxmmkcdmalbdi635d4jgc5p5rx0h7h8"
+// collectorURL URL where the stats are sent.
+const collectorURL = "https://collect.traefik.io/yYaUej3P42cziRVzv6T5w2aYy9po2Mrn"
 
 // Collected data.
 type data struct {
-	Version       string
-	Codename      string
-	BuildDate     string
-	Configuration string
-	Hash          string
+	Version       string `json:"version"`
+	Codename      string `json:"codename"`
+	BuildDate     string `json:"buildDate"`
+	Configuration string `json:"configuration"`
+	Hash          string `json:"hash"`
 }
 
 // Collect anonymous data.
 func Collect(staticConfiguration *static.Configuration) error {
-	anonConfig, err := anonymize.Do(staticConfiguration, false)
+	buf, err := createBody(staticConfiguration)
 	if err != nil {
 		return err
 	}
 
-	log.WithoutContext().Infof("Anonymous stats sent to %s: %s", collectorURL, anonConfig)
+	resp, err := makeHTTPClient().Post(collectorURL, "application/json; charset=utf-8", buf)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+
+	return err
+}
+
+func createBody(staticConfiguration *static.Configuration) (*bytes.Buffer, error) {
+	anonConfig, err := redactor.Anonymize(staticConfiguration)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debug().Msgf("Anonymous stats sent to %s: %s", collectorURL, anonConfig)
 
 	hashConf, err := hashstructure.Hash(staticConfiguration, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	data := &data{
@@ -53,15 +67,10 @@ func Collect(staticConfiguration *static.Configuration) error {
 	buf := new(bytes.Buffer)
 	err = json.NewEncoder(buf).Encode(data)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	resp, err := makeHTTPClient().Post(collectorURL, "application/json; charset=utf-8", buf)
-	if resp != nil {
-		resp.Body.Close()
-	}
-
-	return err
+	return buf, err
 }
 
 func makeHTTPClient() *http.Client {

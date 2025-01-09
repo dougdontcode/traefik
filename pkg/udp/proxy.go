@@ -4,7 +4,7 @@ import (
 	"io"
 	"net"
 
-	"github.com/traefik/traefik/v2/pkg/log"
+	"github.com/rs/zerolog/log"
 )
 
 // Proxy is a reverse-proxy implementation of the Handler interface.
@@ -20,14 +20,14 @@ func NewProxy(address string) (*Proxy, error) {
 
 // ServeUDP implements the Handler interface.
 func (p *Proxy) ServeUDP(conn *Conn) {
-	log.Debugf("Handling connection from %s", conn.rAddr)
+	log.Debug().Msgf("Handling UDP stream from %s to %s", conn.rAddr, p.target)
 
 	// needed because of e.g. server.trackedConnection
 	defer conn.Close()
 
 	connBackend, err := net.Dial("udp", p.target)
 	if err != nil {
-		log.Errorf("Error while connecting to backend: %v", err)
+		log.Error().Err(err).Msg("Error while dialing backend")
 		return
 	}
 
@@ -35,22 +35,26 @@ func (p *Proxy) ServeUDP(conn *Conn) {
 	defer connBackend.Close()
 
 	errChan := make(chan error)
-	go p.connCopy(conn, connBackend, errChan)
-	go p.connCopy(connBackend, conn, errChan)
+	go connCopy(conn, connBackend, errChan)
+	go connCopy(connBackend, conn, errChan)
 
 	err = <-errChan
 	if err != nil {
-		log.WithoutContext().Errorf("Error while serving UDP: %v", err)
+		log.Error().Err(err).Msg("Error while handling UDP stream")
 	}
 
 	<-errChan
 }
 
-func (p Proxy) connCopy(dst io.WriteCloser, src io.Reader, errCh chan error) {
-	_, err := io.Copy(dst, src)
+func connCopy(dst io.WriteCloser, src io.Reader, errCh chan error) {
+	// The buffer is initialized to the maximum UDP datagram size,
+	// to make sure that the whole UDP datagram is read or written atomically (no data is discarded).
+	buffer := make([]byte, maxDatagramSize)
+
+	_, err := io.CopyBuffer(dst, src, buffer)
 	errCh <- err
 
 	if err := dst.Close(); err != nil {
-		log.WithoutContext().Debugf("Error while terminating connection: %v", err)
+		log.Debug().Err(err).Msg("Error while terminating UDP stream")
 	}
 }

@@ -6,7 +6,8 @@
 			],
 			"service": "api@internal",
 			"rule": "PathPrefix(`/api`)",
-			"priority": 2147483646,
+			"ruleSyntax": "v3",
+			"priority": 9223372036854775806,
 			"status": "enabled",
 			"using": [
 				"traefik"
@@ -22,18 +23,20 @@
 			],
 			"service": "dashboard@internal",
 			"rule": "PathPrefix(`/`)",
-			"priority": 2147483645,
+			"ruleSyntax": "v3",
+			"priority": 9223372036854775805,
 			"status": "enabled",
 			"using": [
 				"traefik"
 			]
 		},
-		"whoami-keep-route-default-whoami-test-keep-keep@kubernetes": {
+		"default-whoami-keep-route-whoami-test-keep-keep@kubernetes": {
 			"entryPoints": [
 				"web"
 			],
 			"service": "default-whoami-80",
 			"rule": "Host(`whoami.test.keep`) \u0026\u0026 PathPrefix(`/keep`)",
+			"priority": 47,
 			"status": "enabled",
 			"using": [
 				"web"
@@ -82,20 +85,23 @@
 			"loadBalancer": {
 				"servers": [
 					{
-						"url": "http://10.42.0.4:80"
+						"url": "http://10.42.0.3:80"
 					},
 					{
 						"url": "http://10.42.0.5:80"
 					}
 				],
-				"passHostHeader": true
+				"passHostHeader": true,
+				"responseForwarding": {
+					"flushInterval": "100ms"
+				}
 			},
 			"status": "enabled",
 			"usedBy": [
-				"whoami-keep-route-default-whoami-test-keep-keep@kubernetes"
+				"default-whoami-keep-route-whoami-test-keep-keep@kubernetes"
 			],
 			"serverStatus": {
-				"http://10.42.0.4:80": "UP",
+				"http://10.42.0.3:80": "UP",
 				"http://10.42.0.5:80": "UP"
 			}
 		},

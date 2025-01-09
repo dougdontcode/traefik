@@ -1,3 +1,8 @@
+---
+title: "Traefik CLI Documentation"
+description: "Learn the basics of the Traefik Proxy command line interface (CLI). Read the technical documentation."
+---
+
 # CLI
 
 The Traefik Command Line
@@ -28,7 +33,7 @@ traefik [--flag[=true|false| ]] [-f [true|false| ]]
 
 All flags are documented in the [(static configuration) CLI reference](../reference/static-configuration/cli.md).
 
-!!! info "Flags are case insensitive."
+!!! info "Flags are case-insensitive."
 
 ### `healthcheck`
 

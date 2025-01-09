@@ -1,3 +1,8 @@
+---
+title: "Traefik Prometheus Documentation"
+description: "Traefik supports several metrics backends, including Prometheus. Learn how to implement it for observability in Traefik Proxy. Read the technical documentation."
+---
+
 # Prometheus
 
 To enable the Prometheus:
@@ -39,7 +44,7 @@ metrics:
 ```
 
 ```bash tab="CLI"
---metrics.prometheus.buckets=0.100000, 0.300000, 1.200000, 5.000000
+--metrics.prometheus.buckets=0.1,0.3,1.2,5.0
 ```
 
 #### `addEntryPointsLabels`
@@ -64,22 +69,22 @@ metrics:
 --metrics.prometheus.addEntryPointsLabels=true
 ```
 
-#### `AddRoutersLabels`
+#### `addRoutersLabels`
 
 _Optional, Default=false_
 
 Enable metrics on routers.
 
-```toml tab="File (TOML)"
-[metrics]
-  [metrics.prometheus]
-    addRoutersLabels = true
-```
-
 ```yaml tab="File (YAML)"
 metrics:
   prometheus:
     addRoutersLabels: true
+```
+
+```toml tab="File (TOML)"
+[metrics]
+  [metrics.prometheus]
+    addRoutersLabels = true
 ```
 
 ```bash tab="CLI"
@@ -117,7 +122,7 @@ Entry point used to expose metrics.
 ```yaml tab="File (YAML)"
 entryPoints:
   metrics:
-    address: ":8082"
+    address: :8082
 
 metrics:
   prometheus:
@@ -160,3 +165,74 @@ metrics:
 ```bash tab="CLI"
 --metrics.prometheus.manualrouting=true
 ```
+
+#### `headerLabels`
+
+_Optional_
+
+Defines the extra labels for the `requests_total` metrics, and for each of them, the request header containing the value for this label.
+Please note that if the header is not present in the request it will be added nonetheless with an empty value.
+In addition, the label should be a valid label name for Prometheus metrics, 
+otherwise, the Prometheus metrics provider will fail to serve any Traefik-related metric.
+
+```yaml tab="File (YAML)"
+metrics:
+  prometheus:
+    headerLabels:
+      label: headerKey
+```
+
+```toml tab="File (TOML)"
+[metrics]
+  [metrics.prometheus]
+    [metrics.prometheus.headerLabels]
+      label = "headerKey"
+```
+
+```bash tab="CLI"
+--metrics.prometheus.headerlabels.label=headerKey
+```
+
+##### Example
+
+Here is an example of the entryPoint `requests_total` metric with an additional "useragent" label.
+
+When configuring the label in Static Configuration:
+
+```yaml tab="File (YAML)"
+metrics:
+  prometheus:
+    headerLabels:
+      useragent: User-Agent
+```
+
+```toml tab="File (TOML)"
+[metrics]
+  [metrics.prometheus]
+    [metrics.prometheus.headerLabels]
+      useragent = "User-Agent"
+```
+
+```bash tab="CLI"
+--metrics.prometheus.headerlabels.useragent=User-Agent
+```
+
+And performing a request with a custom User-Agent:
+
+```bash
+curl -H "User-Agent: foobar" http://localhost
+```
+
+The following metric is produced :
+
+```bash
+traefik_entrypoint_requests_total{code="200",entrypoint="web",method="GET",protocol="http",useragent="foobar"} 1
+```
+
+!!! info "`Host` header value"
+
+    The `Host` header is never present in the Header map of a request, as per go documentation says:
+    // For incoming requests, the Host header is promoted to the
+    // Request.Host field and removed from the Header map.
+
+    As a workaround, to obtain the Host of a request as a label, one should use instead the `X-Forwarded-Host` header.

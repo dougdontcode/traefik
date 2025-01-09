@@ -1,3 +1,8 @@
+---
+title: "Traefik ReplacePath Documentation"
+description: "In Traefik Proxy's HTTP middleware, ReplacePath updates paths before forwarding requests. Read the technical documentation."
+---
+
 # ReplacePath
 
 Updating the Path Before Forwarding the Request
@@ -11,7 +16,7 @@ Replace the path of the request URL.
 
 ## Configuration Examples
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Replace the path with /foo
 labels:
   - "traefik.http.middlewares.test-replacepath.replacepath.path=/foo"
@@ -19,7 +24,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Replace the path with /foo
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-replacepath
@@ -31,18 +36,6 @@ spec:
 ```yaml tab="Consul Catalog"
 # Replace the path with /foo
 - "traefik.http.middlewares.test-replacepath.replacepath.path=/foo"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-replacepath.replacepath.path": "/foo"
-}
-```
-
-```yaml tab="Rancher"
-# Replace the path with /foo
-labels:
-  - "traefik.http.middlewares.test-replacepath.replacepath.path=/foo"
 ```
 
 ```yaml tab="File (YAML)"

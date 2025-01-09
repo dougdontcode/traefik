@@ -4,26 +4,34 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"testing"
 	"time"
 
-	"github.com/go-check/check"
 	"github.com/miekg/dns"
-	"github.com/traefik/traefik/v2/integration/try"
-	"github.com/traefik/traefik/v2/pkg/config/static"
-	"github.com/traefik/traefik/v2/pkg/provider/acme"
-	"github.com/traefik/traefik/v2/pkg/testhelpers"
-	"github.com/traefik/traefik/v2/pkg/types"
-	checker "github.com/vdemeester/shakers"
+	"github.com/rs/zerolog/log"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"github.com/traefik/traefik/v3/integration/try"
+	"github.com/traefik/traefik/v3/pkg/config/static"
+	"github.com/traefik/traefik/v3/pkg/provider/acme"
+	"github.com/traefik/traefik/v3/pkg/testhelpers"
+	"github.com/traefik/traefik/v3/pkg/types"
 )
 
-// ACME test suites (using libcompose).
+// ACME test suites.
 type AcmeSuite struct {
 	BaseSuite
 	pebbleIP      string
 	fakeDNSServer *dns.Server
+}
+
+func TestAcmeSuite(t *testing.T) {
+	suite.Run(t, new(AcmeSuite))
 }
 
 type subCases struct {
@@ -39,6 +47,7 @@ type acmeTestCase struct {
 }
 
 type templateModel struct {
+	Domain    types.Domain
 	Domains   []types.Domain
 	PortHTTP  string
 	PortHTTPS string
@@ -54,7 +63,8 @@ const (
 )
 
 func (s *AcmeSuite) getAcmeURL() string {
-	return fmt.Sprintf("https://%s:14000/dir", s.pebbleIP)
+	return fmt.Sprintf("https://%s/dir",
+		net.JoinHostPort(s.pebbleIP, "14000"))
 }
 
 func setupPebbleRootCA() (*http.Transport, error) {
@@ -84,18 +94,18 @@ func setupPebbleRootCA() (*http.Transport, error) {
 	}, nil
 }
 
-func (s *AcmeSuite) SetUpSuite(c *check.C) {
-	s.createComposeProject(c, "pebble")
-	s.composeProject.Start(c)
+func (s *AcmeSuite) SetupSuite() {
+	s.BaseSuite.SetupSuite()
 
-	s.fakeDNSServer = startFakeDNSServer()
+	s.createComposeProject("pebble")
+	s.composeUp()
 
-	s.pebbleIP = s.composeProject.Container(c, "pebble").NetworkSettings.IPAddress
+	// Retrieving the Docker host ip.
+	s.fakeDNSServer = startFakeDNSServer(s.hostIP)
+	s.pebbleIP = s.getComposeServiceIP("pebble")
 
 	pebbleTransport, err := setupPebbleRootCA()
-	if err != nil {
-		c.Fatal(err)
-	}
+	require.NoError(s.T(), err)
 
 	// wait for pebble
 	req := testhelpers.MustNewRequest(http.MethodGet, s.getAcmeURL(), nil)
@@ -111,22 +121,24 @@ func (s *AcmeSuite) SetUpSuite(c *check.C) {
 		}
 		return try.StatusCodeIs(http.StatusOK)(resp)
 	})
-	c.Assert(err, checker.IsNil)
+
+	require.NoError(s.T(), err)
 }
 
-func (s *AcmeSuite) TearDownSuite(c *check.C) {
-	err := s.fakeDNSServer.Shutdown()
-	if err != nil {
-		c.Log(err)
+func (s *AcmeSuite) TearDownSuite() {
+	s.BaseSuite.TearDownSuite()
+
+	if s.fakeDNSServer != nil {
+		err := s.fakeDNSServer.Shutdown()
+		if err != nil {
+			log.Info().Msg(err.Error())
+		}
 	}
 
-	// shutdown and delete compose project
-	if s.composeProject != nil {
-		s.composeProject.Stop(c)
-	}
+	s.composeDown()
 }
 
-func (s *AcmeSuite) TestHTTP01Domains(c *check.C) {
+func (s *AcmeSuite) TestHTTP01Domains() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_domains.toml",
 		subCases: []subCases{{
@@ -146,10 +158,33 @@ func (s *AcmeSuite) TestHTTP01Domains(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestHTTP01DomainsInSAN(c *check.C) {
+func (s *AcmeSuite) TestHTTP01StoreDomains() {
+	testCase := acmeTestCase{
+		traefikConfFilePath: "fixtures/acme/acme_store_domains.toml",
+		subCases: []subCases{{
+			host:               acmeDomain,
+			expectedCommonName: acmeDomain,
+			expectedAlgorithm:  x509.RSA,
+		}},
+		template: templateModel{
+			Domain: types.Domain{
+				Main: "traefik.acme.wtf",
+			},
+			Acme: map[string]static.CertificateResolver{
+				"default": {ACME: &acme.Configuration{
+					HTTPChallenge: &acme.HTTPChallenge{EntryPoint: "web"},
+				}},
+			},
+		},
+	}
+
+	s.retrieveAcmeCertificate(testCase)
+}
+
+func (s *AcmeSuite) TestHTTP01DomainsInSAN() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_domains.toml",
 		subCases: []subCases{{
@@ -170,10 +205,10 @@ func (s *AcmeSuite) TestHTTP01DomainsInSAN(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestHTTP01OnHostRule(c *check.C) {
+func (s *AcmeSuite) TestHTTP01OnHostRule() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_base.toml",
 		subCases: []subCases{{
@@ -190,10 +225,10 @@ func (s *AcmeSuite) TestHTTP01OnHostRule(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestMultipleResolver(c *check.C) {
+func (s *AcmeSuite) TestMultipleResolver() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_multiple_resolvers.toml",
 		subCases: []subCases{
@@ -221,10 +256,10 @@ func (s *AcmeSuite) TestMultipleResolver(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestHTTP01OnHostRuleECDSA(c *check.C) {
+func (s *AcmeSuite) TestHTTP01OnHostRuleECDSA() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_base.toml",
 		subCases: []subCases{{
@@ -242,10 +277,10 @@ func (s *AcmeSuite) TestHTTP01OnHostRuleECDSA(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestHTTP01OnHostRuleInvalidAlgo(c *check.C) {
+func (s *AcmeSuite) TestHTTP01OnHostRuleInvalidAlgo() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_base.toml",
 		subCases: []subCases{{
@@ -263,10 +298,10 @@ func (s *AcmeSuite) TestHTTP01OnHostRuleInvalidAlgo(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestHTTP01OnHostRuleDefaultDynamicCertificatesWithWildcard(c *check.C) {
+func (s *AcmeSuite) TestHTTP01OnHostRuleDefaultDynamicCertificatesWithWildcard() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_tls.toml",
 		subCases: []subCases{{
@@ -283,10 +318,10 @@ func (s *AcmeSuite) TestHTTP01OnHostRuleDefaultDynamicCertificatesWithWildcard(c
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestHTTP01OnHostRuleDynamicCertificatesWithWildcard(c *check.C) {
+func (s *AcmeSuite) TestHTTP01OnHostRuleDynamicCertificatesWithWildcard() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_tls_dynamic.toml",
 		subCases: []subCases{{
@@ -303,10 +338,10 @@ func (s *AcmeSuite) TestHTTP01OnHostRuleDynamicCertificatesWithWildcard(c *check
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestTLSALPN01OnHostRuleTCP(c *check.C) {
+func (s *AcmeSuite) TestTLSALPN01OnHostRuleTCP() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_tcp.toml",
 		subCases: []subCases{{
@@ -323,10 +358,10 @@ func (s *AcmeSuite) TestTLSALPN01OnHostRuleTCP(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestTLSALPN01OnHostRule(c *check.C) {
+func (s *AcmeSuite) TestTLSALPN01OnHostRule() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_base.toml",
 		subCases: []subCases{{
@@ -343,10 +378,10 @@ func (s *AcmeSuite) TestTLSALPN01OnHostRule(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestTLSALPN01Domains(c *check.C) {
+func (s *AcmeSuite) TestTLSALPN01Domains() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_domains.toml",
 		subCases: []subCases{{
@@ -366,10 +401,10 @@ func (s *AcmeSuite) TestTLSALPN01Domains(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
-func (s *AcmeSuite) TestTLSALPN01DomainsInSAN(c *check.C) {
+func (s *AcmeSuite) TestTLSALPN01DomainsInSAN() {
 	testCase := acmeTestCase{
 		traefikConfFilePath: "fixtures/acme/acme_domains.toml",
 		subCases: []subCases{{
@@ -390,12 +425,12 @@ func (s *AcmeSuite) TestTLSALPN01DomainsInSAN(c *check.C) {
 		},
 	}
 
-	s.retrieveAcmeCertificate(c, testCase)
+	s.retrieveAcmeCertificate(testCase)
 }
 
 // Test Let's encrypt down.
-func (s *AcmeSuite) TestNoValidLetsEncryptServer(c *check.C) {
-	file := s.adaptFile(c, "fixtures/acme/acme_base.toml", templateModel{
+func (s *AcmeSuite) TestNoValidLetsEncryptServer() {
+	file := s.adaptFile("fixtures/acme/acme_base.toml", templateModel{
 		Acme: map[string]static.CertificateResolver{
 			"default": {ACME: &acme.Configuration{
 				CAServer:      "http://wrongurl:4001/directory",
@@ -403,21 +438,16 @@ func (s *AcmeSuite) TestNoValidLetsEncryptServer(c *check.C) {
 			}},
 		},
 	})
-	defer os.Remove(file)
 
-	cmd, display := s.traefikCmd(withConfigFile(file))
-	defer display(c)
-	err := cmd.Start()
-	c.Assert(err, checker.IsNil)
-	defer s.killCmd(cmd)
+	s.traefikCmd(withConfigFile(file))
 
 	// Expected traefik works
-	err = try.GetRequest("http://127.0.0.1:8080/api/rawdata", 10*time.Second, try.StatusCodeIs(http.StatusOK))
-	c.Assert(err, checker.IsNil)
+	err := try.GetRequest("http://127.0.0.1:8080/api/rawdata", 10*time.Second, try.StatusCodeIs(http.StatusOK))
+	require.NoError(s.T(), err)
 }
 
 // Doing an HTTPS request and test the response certificate.
-func (s *AcmeSuite) retrieveAcmeCertificate(c *check.C, testCase acmeTestCase) {
+func (s *AcmeSuite) retrieveAcmeCertificate(testCase acmeTestCase) {
 	if len(testCase.template.PortHTTP) == 0 {
 		testCase.template.PortHTTP = ":5002"
 	}
@@ -432,40 +462,38 @@ func (s *AcmeSuite) retrieveAcmeCertificate(c *check.C, testCase acmeTestCase) {
 		}
 	}
 
-	file := s.adaptFile(c, testCase.traefikConfFilePath, testCase.template)
-	defer os.Remove(file)
+	file := s.adaptFile(testCase.traefikConfFilePath, testCase.template)
 
-	cmd, display := s.traefikCmd(withConfigFile(file))
-	defer display(c)
-	err := cmd.Start()
-	c.Assert(err, checker.IsNil)
-	defer s.killCmd(cmd)
+	s.traefikCmd(withConfigFile(file))
+
 	// A real file is needed to have the right mode on acme.json file
 	defer os.Remove("/tmp/acme.json")
 
 	backend := startTestServer("9010", http.StatusOK, "")
 	defer backend.Close()
 
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	// wait for traefik (generating acme account take some seconds)
+	err := try.Do(60*time.Second, func() error {
+		_, errGet := client.Get("https://127.0.0.1:5001")
+		return errGet
+	})
+	require.NoError(s.T(), err)
+
 	for _, sub := range testCase.subCases {
-		client := &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
-		}
-
-		// wait for traefik (generating acme account take some seconds)
-		err = try.Do(60*time.Second, func() error {
-			_, errGet := client.Get("https://127.0.0.1:5001")
-			return errGet
-		})
-		c.Assert(err, checker.IsNil)
-
 		client = &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: true,
 					ServerName:         sub.host,
 				},
+				// Needed so that each subcase redoes the SSL handshake
+				DisableKeepAlives: true,
 			},
 		}
 
@@ -477,12 +505,8 @@ func (s *AcmeSuite) retrieveAcmeCertificate(c *check.C, testCase acmeTestCase) {
 		var resp *http.Response
 
 		// Retry to send a Request which uses the LE generated certificate
-		err = try.Do(60*time.Second, func() error {
+		err := try.Do(60*time.Second, func() error {
 			resp, err = client.Do(req)
-
-			// /!\ If connection is not closed, SSLHandshake will only be done during the first trial /!\
-			req.Close = true
-
 			if err != nil {
 				return err
 			}
@@ -495,10 +519,10 @@ func (s *AcmeSuite) retrieveAcmeCertificate(c *check.C, testCase acmeTestCase) {
 			return nil
 		})
 
-		c.Assert(err, checker.IsNil)
-		c.Assert(resp.StatusCode, checker.Equals, http.StatusOK)
+		require.NoError(s.T(), err)
+		assert.Equal(s.T(), http.StatusOK, resp.StatusCode)
 		// Check Domain into response certificate
-		c.Assert(resp.TLS.PeerCertificates[0].Subject.CommonName, checker.Equals, sub.expectedCommonName)
-		c.Assert(resp.TLS.PeerCertificates[0].PublicKeyAlgorithm, checker.Equals, sub.expectedAlgorithm)
+		assert.Equal(s.T(), sub.expectedCommonName, resp.TLS.PeerCertificates[0].Subject.CommonName)
+		assert.Equal(s.T(), sub.expectedAlgorithm, resp.TLS.PeerCertificates[0].PublicKeyAlgorithm)
 	}
 }

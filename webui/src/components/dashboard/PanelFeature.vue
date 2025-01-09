@@ -1,17 +1,24 @@
 <template>
-  <q-card flat bordered v-bind:class="['panel-feature']">
+  <q-card
+    flat
+    bordered
+    :class="['panel-feature']"
+  >
     <q-card-section>
       <div class="row items-center no-wrap">
         <div class="col">
-          <div class="text-subtitle2">{{featureKey}}</div>
+          <div class="text-subtitle2">
+            {{ featureKey }}
+          </div>
         </div>
       </div>
     </q-card-section>
     <q-card-section>
       <div class="text-h3 text-center text-weight-bold">
         <q-chip
-          v-bind:class="['feature-chip', {'feature-chip-string':isString}, {'feature-chip-boolean':isBoolean}, {'feature-chip-boolean-true':isTrue}]">
-          {{getVal}}
+          :class="['feature-chip', {'feature-chip-string':isString}, {'feature-chip-boolean':isBoolean}, {'feature-chip-boolean-true':isTrue}]"
+        >
+          {{ getVal }}
         </q-chip>
       </div>
     </q-card-section>
@@ -21,7 +28,10 @@
 <script>
 export default {
   name: 'PanelFeature',
-  props: ['featureKey', 'featureVal'],
+  props: {
+    featureKey: { type: String, default: undefined, required: false },
+    featureVal: { type: [String, Boolean], default: undefined, required: false }
+  },
   computed: {
     isString () {
       return typeof this.featureVal === 'string'

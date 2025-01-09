@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
 )
 
 func TestRedirectSchemeHandler(t *testing.T) {
@@ -47,10 +47,56 @@ func TestRedirectSchemeHandler(t *testing.T) {
 			},
 			url: "http://foo",
 			headers: map[string]string{
-				"X-Forwarded-Proto": "https",
+				"X-Forwarded-Proto": "http",
 			},
 			expectedURL:    "https://foo",
 			expectedStatus: http.StatusFound,
+		},
+		{
+			desc: "HTTP to HTTPS, with X-Forwarded-Proto to HTTPS",
+			config: dynamic.RedirectScheme{
+				Scheme: "https",
+			},
+			url: "http://foo",
+			headers: map[string]string{
+				"X-Forwarded-Proto": "https",
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			desc: "HTTP to HTTPS, with X-Forwarded-Proto to unknown value",
+			config: dynamic.RedirectScheme{
+				Scheme: "https",
+			},
+			url: "http://foo",
+			headers: map[string]string{
+				"X-Forwarded-Proto": "bar",
+			},
+			expectedURL:    "https://foo",
+			expectedStatus: http.StatusFound,
+		},
+		{
+			desc: "HTTP to HTTPS, with X-Forwarded-Proto to ws",
+			config: dynamic.RedirectScheme{
+				Scheme: "https",
+			},
+			url: "http://foo",
+			headers: map[string]string{
+				"X-Forwarded-Proto": "ws",
+			},
+			expectedURL:    "https://foo",
+			expectedStatus: http.StatusFound,
+		},
+		{
+			desc: "HTTP to HTTPS, with X-Forwarded-Proto to wss",
+			config: dynamic.RedirectScheme{
+				Scheme: "https",
+			},
+			url: "http://foo",
+			headers: map[string]string{
+				"X-Forwarded-Proto": "wss",
+			},
+			expectedStatus: http.StatusOK,
 		},
 		{
 			desc: "HTTP with port to HTTPS without port",
@@ -237,8 +283,6 @@ func TestRedirectSchemeHandler(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
-
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -287,7 +331,7 @@ func TestRedirectSchemeHandler(t *testing.T) {
 				schemeRegex := `^(https?):\/\/(\[[\w:.]+\]|[\w\._-]+)?(:\d+)?(.*)$`
 				re, _ := regexp.Compile(schemeRegex)
 
-				if re.Match([]byte(test.url)) {
+				if re.MatchString(test.url) {
 					match := re.FindStringSubmatch(test.url)
 					req.RequestURI = match[4]
 

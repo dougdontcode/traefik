@@ -4,6 +4,7 @@
 
 [log]
   level = "DEBUG"
+  noColor = true
 
 [entryPoints]
   [entryPoints.tcp]
@@ -27,4 +28,4 @@
   [tcp.services]
     [tcp.services.whoami-no-tls.loadBalancer]
       [[tcp.services.whoami-no-tls.loadBalancer.servers]]
-        address = "localhost:8084"
+        address = "{{ .WhoamiNoTLS }}"

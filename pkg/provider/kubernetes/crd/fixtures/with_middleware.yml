@@ -1,4 +1,4 @@
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: stripprefix
@@ -10,7 +10,25 @@ spec:
       - /tobestripped
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ratelimit
+  namespace: default
+
+spec:
+  rateLimit:
+    period: 1m
+    average: 6
+    burst: 12
+    sourceCriterion:
+      ipStrategy:
+        excludedIPs:
+          - 127.0.0.1/32
+          - 192.168.1.7
+
+---
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: addprefix
@@ -21,7 +39,7 @@ spec:
     prefix: /tobeadded
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: test2.route
@@ -40,5 +58,6 @@ spec:
           port: 80
       middlewares:
         - name: stripprefix
+        - name: ratelimit
         - name: addprefix
           namespace: foo

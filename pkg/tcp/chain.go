@@ -1,7 +1,7 @@
 package tcp
 
 import (
-	"fmt"
+	"errors"
 )
 
 // Constructor A constructor for a piece of TCP middleware.
@@ -29,7 +29,7 @@ func NewChain(constructors ...Constructor) Chain {
 // Then adds an handler at the end of the chain.
 func (c Chain) Then(h Handler) (Handler, error) {
 	if h == nil {
-		return nil, fmt.Errorf("cannot add a nil handler to the chain")
+		return nil, errors.New("cannot add a nil handler to the chain")
 	}
 
 	for i := range c.constructors {
@@ -48,10 +48,10 @@ func (c Chain) Then(h Handler) (Handler, error) {
 //
 // Append returns a new chain, leaving the original one untouched.
 //
-//     stdChain := tcp.NewChain(m1, m2)
-//     extChain := stdChain.Append(m3, m4)
-//     // requests in stdChain go m1 -> m2
-//     // requests in extChain go m1 -> m2 -> m3 -> m4
+//		 stdChain := tcp.NewChain(m1, m2)
+//		 extChain := stdChain.Append(m3, m4)
+//	  // requests in stdChain go m1 -> m2
+//	  // requests in extChain go m1 -> m2 -> m3 -> m4
 func (c Chain) Append(constructors ...Constructor) Chain {
 	newCons := make([]Constructor, 0, len(c.constructors)+len(constructors))
 	newCons = append(newCons, c.constructors...)
@@ -65,22 +65,23 @@ func (c Chain) Append(constructors ...Constructor) Chain {
 //
 // Extend returns a new chain, leaving the original one untouched.
 //
-//     stdChain := tcp.NewChain(m1, m2)
-//     ext1Chain := tcp.NewChain(m3, m4)
-//     ext2Chain := stdChain.Extend(ext1Chain)
-//     // requests in stdChain go  m1 -> m2
-//     // requests in ext1Chain go m3 -> m4
-//     // requests in ext2Chain go m1 -> m2 -> m3 -> m4
+//	stdChain := tcp.NewChain(m1, m2)
+//	ext1Chain := tcp.NewChain(m3, m4)
+//	ext2Chain := stdChain.Extend(ext1Chain)
+//	// requests in stdChain go  m1 -> m2
+//	// requests in ext1Chain go m3 -> m4
+//	// requests in ext2Chain go m1 -> m2 -> m3 -> m4
 //
 // Another example:
-//  aHtmlAfterNosurf := tcp.NewChain(m2)
-// 	aHtml := tcp.NewChain(m1, func(h tcp.Handler) tcp.Handler {
-// 		csrf := nosurf.New(h)
-// 		csrf.SetFailureHandler(aHtmlAfterNosurf.ThenFunc(csrfFail))
-// 		return csrf
-// 	}).Extend(aHtmlAfterNosurf)
-//		// requests to aHtml hitting nosurfs success handler go m1 -> nosurf -> m2 -> target-handler
-//		// requests to aHtml hitting nosurfs failure handler go m1 -> nosurf -> m2 -> csrfFail
+//
+//	 	aHtmlAfterNosurf := tcp.NewChain(m2)
+//		aHtml := tcp.NewChain(m1, func(h tcp.Handler) tcp.Handler {
+//			csrf := nosurf.New(h)
+//			csrf.SetFailureHandler(aHtmlAfterNosurf.ThenFunc(csrfFail))
+//			return csrf
+//		}).Extend(aHtmlAfterNosurf)
+//			// requests to aHtml hitting nosurfs success handler go m1 -> nosurf -> m2 -> target-handler
+//			// requests to aHtml hitting nosurfs failure handler go m1 -> nosurf -> m2 -> csrfFail
 func (c Chain) Extend(chain Chain) Chain {
 	return c.Append(chain.constructors...)
 }

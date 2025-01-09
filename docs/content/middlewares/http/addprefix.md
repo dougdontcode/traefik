@@ -1,3 +1,8 @@
+---
+title: "Traefik AddPrefix Documentation"
+description: "Learn how to implement the HTTP AddPrefix middleware in Traefik Proxy to updates request paths before being forwarded. Read the technical documentation."
+---
+
 # Add Prefix
 
 Prefixing the Path
@@ -9,7 +14,7 @@ The AddPrefix middleware updates the path of a request before forwarding it.
 
 ## Configuration Examples
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Prefixing with /foo
 labels:
   - "traefik.http.middlewares.add-foo.addprefix.prefix=/foo"
@@ -17,7 +22,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Prefixing with /foo
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: add-foo
@@ -29,18 +34,6 @@ spec:
 ```yaml tab="Consul Catalog"
 # Prefixing with /foo
 - "traefik.http.middlewares.add-foo.addprefix.prefix=/foo"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.add-foo.addprefix.prefix": "/foo"
-}
-```
-
-```yaml tab="Rancher"
-# Prefixing with /foo
-labels:
-  - "traefik.http.middlewares.add-foo.addprefix.prefix=/foo"
 ```
 
 ```yaml tab="File (YAML)"

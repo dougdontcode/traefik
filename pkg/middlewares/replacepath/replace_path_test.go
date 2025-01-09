@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
 )
 
 func TestReplacePath(t *testing.T) {
@@ -59,6 +59,16 @@ func TestReplacePath(t *testing.T) {
 			expectedPath:    "/foo/bar",
 			expectedRawPath: "/foo%2Fbar",
 			expectedHeader:  "/path",
+		},
+		{
+			desc: "replacement with percent encoded backspace char",
+			path: "/path/%08bar",
+			config: dynamic.ReplacePath{
+				Path: "/path/%08bar",
+			},
+			expectedPath:    "/path/\bbar",
+			expectedRawPath: "/path/%08bar",
+			expectedHeader:  "/path/%08bar",
 		},
 	}
 

@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/traefik/traefik/v2/pkg/testhelpers"
-	"github.com/traefik/traefik/v2/pkg/types"
+	"github.com/traefik/traefik/v3/pkg/testhelpers"
+	"github.com/traefik/traefik/v3/pkg/types"
 )
 
 func TestRequestHost(t *testing.T) {
@@ -38,7 +38,6 @@ func TestRequestHost(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -80,7 +79,6 @@ func TestRequestFlattening(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -104,7 +102,7 @@ func TestRequestFlattening(t *testing.T) {
 	}
 }
 
-func TestRequestHostParseHost(t *testing.T) {
+func Test_parseHost(t *testing.T) {
 	testCases := []struct {
 		desc     string
 		host     string
@@ -130,10 +128,49 @@ func TestRequestHostParseHost(t *testing.T) {
 			host:     "127.0.0.1:",
 			expected: "127.0.0.1",
 		},
+		{
+			desc:     "host with : and without port",
+			host:     "fe80::215:5dff:fe20:cd6a",
+			expected: "fe80::215:5dff:fe20:cd6a",
+		},
+		{
+			desc:     "IPv6 host with : and with port",
+			host:     "[fe80::215:5dff:fe20:cd6a]:123",
+			expected: "fe80::215:5dff:fe20:cd6a",
+		},
+		{
+			desc:     "IPv6 host with : and without port",
+			host:     "[fe80::215:5dff:fe20:cd6a]:",
+			expected: "fe80::215:5dff:fe20:cd6a",
+		},
+		{
+			desc:     "IPv6 host without : and without port",
+			host:     "[fe80::215:5dff:fe20:cd6a]",
+			expected: "fe80::215:5dff:fe20:cd6a",
+		},
+		{
+			desc:     "invalid IPv6: missing [",
+			host:     "fe80::215:5dff:fe20:cd6a]",
+			expected: "fe80::215:5dff:fe20:cd6a]",
+		},
+		{
+			desc:     "invalid IPv6: missing ]",
+			host:     "[fe80::215:5dff:fe20:cd6a",
+			expected: "[fe80::215:5dff:fe20:cd6a",
+		},
+		{
+			desc:     "empty address",
+			host:     "",
+			expected: "",
+		},
+		{
+			desc:     "only :",
+			host:     ":",
+			expected: "",
+		},
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 

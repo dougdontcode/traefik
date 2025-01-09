@@ -5,11 +5,12 @@ import (
 	"errors"
 	"sort"
 
-	"github.com/traefik/traefik/v2/pkg/config/runtime"
-	"github.com/traefik/traefik/v2/pkg/log"
-	"github.com/traefik/traefik/v2/pkg/server/provider"
-	udpservice "github.com/traefik/traefik/v2/pkg/server/service/udp"
-	"github.com/traefik/traefik/v2/pkg/udp"
+	"github.com/rs/zerolog/log"
+	"github.com/traefik/traefik/v3/pkg/config/runtime"
+	"github.com/traefik/traefik/v3/pkg/logs"
+	"github.com/traefik/traefik/v3/pkg/server/provider"
+	udpservice "github.com/traefik/traefik/v3/pkg/server/service/udp"
+	"github.com/traefik/traefik/v3/pkg/udp"
 )
 
 // NewManager Creates a new Manager.
@@ -42,21 +43,16 @@ func (m *Manager) BuildHandlers(rootCtx context.Context, entryPoints []string) m
 
 	entryPointHandlers := make(map[string]udp.Handler)
 	for _, entryPointName := range entryPoints {
-		entryPointName := entryPointName
-
 		routers := entryPointsRouters[entryPointName]
 
-		ctx := log.With(rootCtx, log.Str(log.EntryPointName, entryPointName))
+		logger := log.Ctx(rootCtx).With().Str(logs.EntryPointName, entryPointName).Logger()
+		ctx := logger.WithContext(rootCtx)
 
 		if len(routers) > 1 {
-			log.FromContext(ctx).Warn("Config has more than one udp router for a given entrypoint.")
+			logger.Warn().Msg("Config has more than one udp router for a given entrypoint.")
 		}
 
-		handlers, err := m.buildEntryPointHandlers(ctx, routers)
-		if err != nil {
-			log.FromContext(ctx).Error(err)
-			continue
-		}
+		handlers := m.buildEntryPointHandlers(ctx, routers)
 
 		if len(handlers) > 0 {
 			// As UDP support only one router per entrypoint, we only take the first one.
@@ -66,7 +62,7 @@ func (m *Manager) BuildHandlers(rootCtx context.Context, entryPoints []string) m
 	return entryPointHandlers
 }
 
-func (m *Manager) buildEntryPointHandlers(ctx context.Context, configs map[string]*runtime.UDPRouterInfo) ([]udp.Handler, error) {
+func (m *Manager) buildEntryPointHandlers(ctx context.Context, configs map[string]*runtime.UDPRouterInfo) []udp.Handler {
 	var rtNames []string
 	for routerName := range configs {
 		rtNames = append(rtNames, routerName)
@@ -80,26 +76,25 @@ func (m *Manager) buildEntryPointHandlers(ctx context.Context, configs map[strin
 
 	for _, routerName := range rtNames {
 		routerConfig := configs[routerName]
-
-		ctxRouter := log.With(provider.AddInContext(ctx, routerName), log.Str(log.RouterName, routerName))
-		logger := log.FromContext(ctxRouter)
+		logger := log.Ctx(ctx).With().Str(logs.RouterName, routerName).Logger()
+		ctxRouter := logger.WithContext(provider.AddInContext(ctx, routerName))
 
 		if routerConfig.Service == "" {
 			err := errors.New("the service is missing on the udp router")
 			routerConfig.AddError(err, true)
-			logger.Error(err)
+			logger.Error().Err(err).Send()
 			continue
 		}
 
 		handler, err := m.serviceManager.BuildUDP(ctxRouter, routerConfig.Service)
 		if err != nil {
 			routerConfig.AddError(err, true)
-			logger.Error(err)
+			logger.Error().Err(err).Send()
 			continue
 		}
 
 		handlers = append(handlers, handler)
 	}
 
-	return handlers, nil
+	return handlers
 }

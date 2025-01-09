@@ -16,11 +16,14 @@ import (
 	"time"
 
 	"github.com/containous/alice"
+	"github.com/rs/zerolog/log"
 	"github.com/sirupsen/logrus"
 	ptypes "github.com/traefik/paerser/types"
-	"github.com/traefik/traefik/v2/pkg/log"
-	traefiktls "github.com/traefik/traefik/v2/pkg/tls"
-	"github.com/traefik/traefik/v2/pkg/types"
+	"github.com/traefik/traefik/v3/pkg/logs"
+	"github.com/traefik/traefik/v3/pkg/middlewares/capture"
+	traefiktls "github.com/traefik/traefik/v3/pkg/tls"
+	"github.com/traefik/traefik/v3/pkg/types"
+	"go.opentelemetry.io/contrib/bridges/otellogrus"
 )
 
 type key string
@@ -50,6 +53,7 @@ func (n noopCloser) Close() error {
 }
 
 type handlerParams struct {
+	ctx          context.Context
 	logDataTable *LogData
 }
 
@@ -93,7 +97,7 @@ func NewHandler(config *types.AccessLog) (*Handler, error) {
 	case JSONFormat:
 		formatter = new(logrus.JSONFormatter)
 	default:
-		log.WithoutContext().Errorf("unsupported access log format: %q, defaulting to common format instead.", config.Format)
+		log.Error().Msgf("Unsupported access log format: %q, defaulting to common format instead.", config.Format)
 		formatter = new(CommonLogFormatter)
 	}
 
@@ -104,15 +108,38 @@ func NewHandler(config *types.AccessLog) (*Handler, error) {
 		Level:     logrus.InfoLevel,
 	}
 
-	// Transform headers names in config to a canonical form, to be used as is without further transformations.
-	if config.Fields != nil && config.Fields.Headers != nil && len(config.Fields.Headers.Names) > 0 {
-		fields := map[string]string{}
-
-		for h, v := range config.Fields.Headers.Names {
-			fields[textproto.CanonicalMIMEHeaderKey(h)] = v
+	if config.OTLP != nil {
+		otelLoggerProvider, err := config.OTLP.NewLoggerProvider()
+		if err != nil {
+			return nil, fmt.Errorf("setting up OpenTelemetry logger provider: %w", err)
 		}
 
-		config.Fields.Headers.Names = fields
+		logger.Hooks.Add(otellogrus.NewHook("traefik", otellogrus.WithLoggerProvider(otelLoggerProvider)))
+		logger.Out = io.Discard
+	}
+
+	// Transform header names to a canonical form, to be used as is without further transformations,
+	// and transform field names to lower case, to enable case-insensitive lookup.
+	if config.Fields != nil {
+		if len(config.Fields.Names) > 0 {
+			fields := map[string]string{}
+
+			for h, v := range config.Fields.Names {
+				fields[strings.ToLower(h)] = v
+			}
+
+			config.Fields.Names = fields
+		}
+
+		if config.Fields.Headers != nil && len(config.Fields.Headers.Names) > 0 {
+			fields := map[string]string{}
+
+			for h, v := range config.Fields.Headers.Names {
+				fields[textproto.CanonicalMIMEHeaderKey(h)] = v
+			}
+
+			config.Fields.Headers.Names = fields
+		}
 	}
 
 	logHandler := &Handler{
@@ -124,7 +151,7 @@ func NewHandler(config *types.AccessLog) (*Handler, error) {
 
 	if config.Filters != nil {
 		if httpCodeRanges, err := types.NewHTTPCodeRanges(config.Filters.StatusCodes); err != nil {
-			log.WithoutContext().Errorf("Failed to create new HTTP code ranges: %s", err)
+			log.Error().Err(err).Msg("Failed to create new HTTP code ranges")
 		} else {
 			logHandler.httpCodeRanges = httpCodeRanges
 		}
@@ -135,7 +162,7 @@ func NewHandler(config *types.AccessLog) (*Handler, error) {
 		go func() {
 			defer logHandler.wg.Done()
 			for handlerParams := range logHandler.logHandlerChan {
-				logHandler.logTheRoundTrip(handlerParams.logDataTable)
+				logHandler.logTheRoundTrip(handlerParams.ctx, handlerParams.logDataTable)
 			}
 		}()
 	}
@@ -184,12 +211,6 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http
 
 	reqWithDataTable := req.WithContext(context.WithValue(req.Context(), DataTableKey, logDataTable))
 
-	var crr *captureRequestReader
-	if req.Body != nil {
-		crr = &captureRequestReader{source: req.Body, count: 0}
-		reqWithDataTable.Body = crr
-	}
-
 	core[RequestCount] = nextRequestCount()
 	if req.Host != "" {
 		core[RequestAddr] = req.Host
@@ -213,6 +234,9 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http
 		core[RequestScheme] = "https"
 		core[TLSVersion] = traefiktls.GetVersion(req.TLS)
 		core[TLSCipher] = traefiktls.GetCipherName(req.TLS)
+		if len(req.TLS.PeerCertificates) > 0 && req.TLS.PeerCertificates[0] != nil {
+			core[TLSClientSubject] = req.TLS.PeerCertificates[0].Subject.String()
+		}
 	}
 
 	core[ClientAddr] = req.RemoteAddr
@@ -222,30 +246,38 @@ func (h *Handler) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http
 		core[ClientHost] = forwardedFor
 	}
 
-	crw := newCaptureResponseWriter(rw)
-
-	next.ServeHTTP(crw, reqWithDataTable)
-
-	if _, ok := core[ClientUsername]; !ok {
-		core[ClientUsername] = usernameIfPresent(reqWithDataTable.URL)
+	ctx := req.Context()
+	capt, err := capture.FromContext(ctx)
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Str(logs.MiddlewareType, "AccessLogs").Msg("Could not get Capture")
+		return
 	}
 
-	logDataTable.DownstreamResponse = downstreamResponse{
-		headers: crw.Header().Clone(),
-		status:  crw.Status(),
-		size:    crw.Size(),
-	}
-	if crr != nil {
-		logDataTable.Request.size = crr.count
-	}
-
-	if h.config.BufferingSize > 0 {
-		h.logHandlerChan <- handlerParams{
-			logDataTable: logDataTable,
+	defer func() {
+		logDataTable.DownstreamResponse = downstreamResponse{
+			headers: rw.Header().Clone(),
 		}
-	} else {
-		h.logTheRoundTrip(logDataTable)
-	}
+
+		logDataTable.DownstreamResponse.status = capt.StatusCode()
+		logDataTable.DownstreamResponse.size = capt.ResponseSize()
+		logDataTable.Request.size = capt.RequestSize()
+
+		if _, ok := core[ClientUsername]; !ok {
+			core[ClientUsername] = usernameIfPresent(reqWithDataTable.URL)
+		}
+
+		if h.config.BufferingSize > 0 {
+			h.logHandlerChan <- handlerParams{
+				ctx:          req.Context(),
+				logDataTable: logDataTable,
+			}
+			return
+		}
+
+		h.logTheRoundTrip(req.Context(), logDataTable)
+	}()
+
+	next.ServeHTTP(rw, reqWithDataTable)
 }
 
 // Close closes the Logger (i.e. the file, drain logHandlerChan, etc).
@@ -294,7 +326,7 @@ func usernameIfPresent(theURL *url.URL) string {
 }
 
 // Logging handler to log frontend name, backend name, and elapsed time.
-func (h *Handler) logTheRoundTrip(logDataTable *LogData) {
+func (h *Handler) logTheRoundTrip(ctx context.Context, logDataTable *LogData) {
 	core := logDataTable.Core
 
 	retryAttempts, ok := core[RetryAttempts].(int)
@@ -329,7 +361,7 @@ func (h *Handler) logTheRoundTrip(logDataTable *LogData) {
 		fields := logrus.Fields{}
 
 		for k, v := range logDataTable.Core {
-			if h.config.Fields.Keep(k) {
+			if h.config.Fields.Keep(strings.ToLower(k)) {
 				fields[k] = v
 			}
 		}
@@ -340,7 +372,7 @@ func (h *Handler) logTheRoundTrip(logDataTable *LogData) {
 
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.logger.WithFields(fields).Println()
+		h.logger.WithContext(ctx).WithFields(fields).Println()
 	}
 }
 

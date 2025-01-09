@@ -4,6 +4,7 @@
 
 [log]
   level = "DEBUG"
+  noColor = true
 
 [entryPoints]
   [entryPoints.tcp]
@@ -27,7 +28,7 @@
   [tcp.services]
     [tcp.services.whoami-no-tls.loadBalancer]
       [[tcp.services.whoami-no-tls.loadBalancer.servers]]
-        address = "localhost:8086"
+        address = "{{ .WhoamiNoTLSAddress }}"
 
 [http]
   [http.routers]
@@ -40,4 +41,4 @@
   [http.services]
     [http.services.whoami.loadBalancer]
       [[http.services.whoami.loadBalancer.servers]]
-        url = "http://localhost:8085"
+        url = "{{ .WhoamiURL }}"

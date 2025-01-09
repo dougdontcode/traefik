@@ -1,3 +1,8 @@
+---
+title: "Traefik RateLimit Documentation"
+description: "Traefik Proxy's HTTP RateLimit middleware ensures Services receive fair amounts of requests. Read the technical documentation."
+---
+
 # RateLimit
 
 To Control the Number of Requests Going to a Service
@@ -5,69 +10,56 @@ To Control the Number of Requests Going to a Service
 
 The RateLimit middleware ensures that services will receive a _fair_ amount of requests, and allows one to define what fair is.
 
+It is based on a [token bucket](https://en.wikipedia.org/wiki/Token_bucket) implementation. In this analogy, the [average](#average) parameter (defined below) is the rate at which the bucket refills, and the [burst](#burst) is the size (volume) of the bucket.
+
 ## Configuration Example
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Here, an average of 100 requests per second is allowed.
-# In addition, a burst of 50 requests is allowed.
+# In addition, a burst of 200 requests is allowed.
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=50"
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=200"
 ```
 
 ```yaml tab="Kubernetes"
 # Here, an average of 100 requests per second is allowed.
-# In addition, a burst of 50 requests is allowed.
-apiVersion: traefik.containo.us/v1alpha1
+# In addition, a burst of 200 requests is allowed.
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
 spec:
   rateLimit:
     average: 100
-    burst: 50
+    burst: 200
 ```
 
 ```yaml tab="Consul Catalog"
 # Here, an average of 100 requests per second is allowed.
-# In addition, a burst of 50 requests is allowed.
+# In addition, a burst of 200 requests is allowed.
 - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
 - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=50"
 ```
 
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.average": "100",
-  "traefik.http.middlewares.test-ratelimit.ratelimit.burst": "50"
-}
-```
-
-```yaml tab="Rancher"
-# Here, an average of 100 requests per second is allowed.
-# In addition, a burst of 50 requests is allowed.
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=50"
-```
-
 ```yaml tab="File (YAML)"
 # Here, an average of 100 requests per second is allowed.
-# In addition, a burst of 50 requests is allowed.
+# In addition, a burst of 200 requests is allowed.
 http:
   middlewares:
     test-ratelimit:
       rateLimit:
         average: 100
-        burst: 50
+        burst: 200
 ```
 
 ```toml tab="File (TOML)"
 # Here, an average of 100 requests per second is allowed.
-# In addition, a burst of 50 requests is allowed.
+# In addition, a burst of 200 requests is allowed.
 [http.middlewares]
   [http.middlewares.test-ratelimit.rateLimit]
     average = 100
-    burst = 50
+    burst = 200
 ```
 
 ## Configuration Options
@@ -81,7 +73,7 @@ It defaults to `0`, which means no rate limiting.
 The rate is actually defined by dividing `average` by `period`.
 So for a rate below 1 req/s, one needs to define a `period` larger than a second.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # 100 reqs/s
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
@@ -89,7 +81,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # 100 reqs/s
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
@@ -101,17 +93,6 @@ spec:
 ```yaml tab="Consul Catalog"
 # 100 reqs/s
 - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.average": "100",
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.average=100"
 ```
 
 ```yaml tab="File (YAML)"
@@ -140,7 +121,7 @@ r = average / period
 
 It defaults to `1` second.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # 6 reqs/minute
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.average=6"
@@ -149,7 +130,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # 6 reqs/minute
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
@@ -163,20 +144,6 @@ spec:
 # 6 reqs/minute
 - "traefik.http.middlewares.test-ratelimit.ratelimit.average=6"
 - "traefik.http.middlewares.test-ratelimit.ratelimit.period=1m"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.average": "6",
-  "traefik.http.middlewares.test-ratelimit.ratelimit.period": "1m",
-}
-```
-
-```yaml tab="Rancher"
-# 6 reqs/minute
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.average=6"
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.period=1m"
 ```
 
 ```yaml tab="File (YAML)"
@@ -203,13 +170,13 @@ http:
 
 It defaults to `1`.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=100"
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
@@ -220,17 +187,6 @@ spec:
 
 ```yaml tab="Consul Catalog"
 - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=100"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.burst": "100",
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.burst=100"
 ```
 
 ```yaml tab="File (YAML)"
@@ -250,12 +206,14 @@ http:
 ### `sourceCriterion`
 
 The `sourceCriterion` option defines what criterion is used to group requests as originating from a common source.
-The precedence order is `ipStrategy`, then `requestHeaderName`, then `requestHost`.
+If several strategies are defined at the same time, an error will be raised.
 If none are set, the default is to use the request's remote address field (as an `ipStrategy`).
 
 #### `sourceCriterion.ipStrategy`
 
-The `ipStrategy` option defines two parameters that configures how Traefik determines the client IP: `depth`, and `excludedIPs`.
+The `ipStrategy` option defines three parameters that configures how Traefik determines the client IP: `depth`, `excludedIPs` and `ipv6Subnet`.
+
+!!! important "As a middleware, rate-limiting happens before the actual proxying to the backend takes place. In addition, the previous network hop only gets appended to `X-Forwarded-For` during the last stages of proxying, i.e. after it has already passed through rate-limiting. Therefore, during rate-limiting, as the previous network hop is not yet present in `X-Forwarded-For`, it cannot be found and/or relied upon."
 
 ##### `ipStrategy.depth`
 
@@ -263,6 +221,9 @@ The `depth` option tells Traefik to use the `X-Forwarded-For` header and select 
 
 - If `depth` is greater than the total number of IPs in `X-Forwarded-For`, then the client IP is empty.
 - `depth` is ignored if its value is less than or equal to 0.
+
+If `ipStrategy.ipv6Subnet` is provided and the selected IP is IPv6, the IP is transformed into the first IP of the subnet it belongs to.  
+See [ipStrategy.ipv6Subnet](#ipstrategyipv6subnet) for more details.
 
 !!! example "Example of Depth & X-Forwarded-For"
 
@@ -274,13 +235,13 @@ The `depth` option tells Traefik to use the `X-Forwarded-For` header and select 
     | `"10.0.0.1,11.0.0.1,12.0.0.1,13.0.0.1"` | `3`     | `"11.0.0.1"` |
     | `"10.0.0.1,11.0.0.1,12.0.0.1,13.0.0.1"` | `5`     | `""`         |
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth=2"
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
@@ -293,17 +254,6 @@ spec:
 
 ```yaml tab="Consul Catalog"
 - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth=2"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth": "2"
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.depth=2"
 ```
 
 ```yaml tab="File (YAML)"
@@ -366,13 +316,13 @@ and the first IP that is _not_ in the pool (if any) is returned.
     | `"10.0.0.1,11.0.0.1,13.0.0.1"` | `"15.0.0.1,16.0.0.1"` | `"13.0.0.1"` |
     | `"10.0.0.1,11.0.0.1"`          | `"10.0.0.1,11.0.0.1"` | `""`         |
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.excludedips=127.0.0.1/32, 192.168.1.7"
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
@@ -387,17 +337,6 @@ spec:
 
 ```yaml tab="Consul Catalog"
 - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.excludedips=127.0.0.1/32, 192.168.1.7"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.excludedips": "127.0.0.1/32, 192.168.1.7"
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.excludedips=127.0.0.1/32, 192.168.1.7"
 ```
 
 ```yaml tab="File (YAML)"
@@ -419,17 +358,76 @@ http:
       excludedIPs = ["127.0.0.1/32", "192.168.1.7"]
 ```
 
+##### `ipStrategy.ipv6Subnet`
+
+This strategy applies to `Depth` and `RemoteAddr` strategy only.
+If `ipv6Subnet` is provided and the selected IP is IPv6, the IP is transformed into the first IP of the subnet it belongs to.
+
+This is useful for grouping IPv6 addresses into subnets to prevent bypassing this middleware by obtaining a new IPv6.
+
+- `ipv6Subnet` is ignored if its value is outside of 0-128 interval
+
+!!! example "Example of ipv6Subnet"
+
+    If `ipv6Subnet` is provided, the IP is transformed in the following way.
+
+    | `IP`                      | `ipv6Subnet` | clientIP              |
+    |---------------------------|--------------|-----------------------|
+    | `"::abcd:1111:2222:3333"` | `64`         | `"::0:0:0:0"`         |
+    | `"::abcd:1111:2222:3333"` | `80`         | `"::abcd:0:0:0:0"`    |
+    | `"::abcd:1111:2222:3333"` | `96`         | `"::abcd:1111:0:0:0"` |
+
+```yaml tab="Docker & Swarm"
+labels:
+  - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.ipv6Subnet=64"
+```
+
+```yaml tab="Kubernetes"
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: test-ratelimit
+spec:
+  ratelimit:
+    sourceCriterion:
+      ipStrategy:
+        ipv6Subnet: 64
+```
+
+```yaml tab="Consul Catalog"
+- "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.ipstrategy.ipv6Subnet=64"
+```
+
+```yaml tab="File (YAML)"
+http:
+  middlewares:
+    test-ratelimit:
+      ratelimit:
+        sourceCriterion:
+          ipStrategy:
+            ipv6Subnet: 64
+```
+
+```toml tab="File (TOML)"
+[http.middlewares]
+  [http.middlewares.test-ratelimit.ratelimit]
+    [http.middlewares.test-ratelimit.ratelimit.sourceCriterion.ipStrategy]
+      ipv6Subnet = 64
+```
+
 #### `sourceCriterion.requestHeaderName`
 
 Name of the header used to group incoming requests.
 
-```yaml tab="Docker"
+!!! important "If the header is not present, rate limiting will still be applied, but all requests without the specified header will be grouped together."
+
+```yaml tab="Docker & Swarm"
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requestheadername=username"
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
@@ -441,17 +439,6 @@ spec:
 
 ```yaml tab="Consul Catalog"
 - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requestheadername=username"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requestheadername": "username"
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requestheadername=username"
 ```
 
 ```yaml tab="File (YAML)"
@@ -474,13 +461,13 @@ http:
 
 Whether to consider the request host as the source.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 labels:
   - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requesthost=true"
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-ratelimit
@@ -492,17 +479,6 @@ spec:
 
 ```yaml tab="Consul Catalog"
 - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requesthost=true"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requesthost": "true"
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.middlewares.test-ratelimit.ratelimit.sourcecriterion.requesthost=true"
 ```
 
 ```yaml tab="File (YAML)"

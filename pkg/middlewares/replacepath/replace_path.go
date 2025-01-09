@@ -5,11 +5,10 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/opentracing/opentracing-go/ext"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
-	"github.com/traefik/traefik/v2/pkg/log"
-	"github.com/traefik/traefik/v2/pkg/middlewares"
-	"github.com/traefik/traefik/v2/pkg/tracing"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/middlewares"
+	"github.com/traefik/traefik/v3/pkg/middlewares/observability"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -27,7 +26,7 @@ type replacePath struct {
 
 // New creates a new replace path middleware.
 func New(ctx context.Context, next http.Handler, config dynamic.ReplacePath, name string) (http.Handler, error) {
-	log.FromContext(middlewares.GetLoggerCtx(ctx, name, typeName)).Debug("Creating middleware")
+	middlewares.GetLogger(ctx, name, typeName).Debug().Msg("Creating middleware")
 
 	return &replacePath{
 		next: next,
@@ -36,23 +35,24 @@ func New(ctx context.Context, next http.Handler, config dynamic.ReplacePath, nam
 	}, nil
 }
 
-func (r *replacePath) GetTracingInformation() (string, ext.SpanKindEnum) {
-	return r.name, tracing.SpanKindNoneEnum
+func (r *replacePath) GetTracingInformation() (string, string, trace.SpanKind) {
+	return r.name, typeName, trace.SpanKindInternal
 }
 
 func (r *replacePath) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	if req.URL.RawPath == "" {
-		req.Header.Add(ReplacedPathHeader, req.URL.Path)
-	} else {
-		req.Header.Add(ReplacedPathHeader, req.URL.RawPath)
+	currentPath := req.URL.RawPath
+	if currentPath == "" {
+		currentPath = req.URL.EscapedPath()
 	}
 
+	req.Header.Add(ReplacedPathHeader, currentPath)
 	req.URL.RawPath = r.path
 
 	var err error
 	req.URL.Path, err = url.PathUnescape(req.URL.RawPath)
 	if err != nil {
-		log.FromContext(middlewares.GetLoggerCtx(context.Background(), r.name, typeName)).Error(err)
+		middlewares.GetLogger(context.Background(), r.name, typeName).Error().Msgf("Unable to unescape url raw path %q: %v", req.URL.RawPath, err)
+		observability.SetStatusErrorf(req.Context(), "Unable to unescape url raw path %q: %v", req.URL.RawPath, err)
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}

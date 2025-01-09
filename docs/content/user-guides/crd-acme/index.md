@@ -1,3 +1,8 @@
+---
+title: "Traefik CRD TLS Documentation"
+description: "Learn how to use Traefik Proxy w/ an IngressRoute Custom Resource Definition (CRD) for Kubernetes, and TLS with Let's Encrypt. Read the technical documentation."
+---
+
 # Traefik & CRD & Let's Encrypt
 
 Traefik with an IngressRoute Custom Resource Definition for Kubernetes, and TLS Through Let's Encrypt.
@@ -39,19 +44,24 @@ Let's now have a look (in the order they should be applied, if using `kubectl ap
 
 ### IngressRoute Definition
 
-First, the definition of the `IngressRoute` and the `Middleware` kinds.
-Also note the RBAC authorization resources; they'll be referenced through the `serviceAccountName` of the deployment, later on.
+First, you will need to install Traefik CRDs containing the definition of the `IngressRoute` and the `Middleware` kinds, 
+and the RBAC authorization resources which will be referenced through the `serviceAccountName` of the deployment.
 
-```yaml
---8<-- "content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml"
+```bash
+# Install Traefik Resource Definitions:
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.3/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
 
----
---8<-- "content/reference/dynamic-configuration/kubernetes-crd-rbac.yml"
+# Install RBAC for Traefik:
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.3/docs/content/reference/dynamic-configuration/kubernetes-crd-rbac.yml
 ```
 
 ### Services
 
 Then, the services. One for Traefik itself, and one for the app it routes for, i.e. in this case our demo HTTP server: [whoami](https://github.com/traefik/whoami).
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.3/docs/content/user-guides/crd-acme/02-services.yml
+```
 
 ```yaml
 --8<-- "content/user-guides/crd-acme/02-services.yml"
@@ -61,6 +71,10 @@ Then, the services. One for Traefik itself, and one for the app it routes for, i
 
 Next, the deployments, i.e. the actual pods behind the services.
 Again, one pod for Traefik, and one for the whoami app.
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.3/docs/content/user-guides/crd-acme/03-deployments.yml
+```
 
 ```yaml
 --8<-- "content/user-guides/crd-acme/03-deployments.yml"
@@ -77,7 +91,7 @@ Therefore, for the whole thing to work, we must delay applying the ingressRoute 
 kubectl port-forward --address 0.0.0.0 service/traefik 8000:8000 8080:8080 443:4443 -n default
 ```
 
-Also, and this is out of the scope if this guide, please note that because of the privileged ports limitation on Linux, the above command might fail to listen on port 443.
+Also, and this is out of the scope of this guide, please note that because of the privileged ports limitation on Linux, the above command might fail to listen on port 443.
 In which case you can use tricks such as elevating caps of `kubectl` with `setcaps`, or using `authbind`, or setting up a NAT between your host and the WAN.
 Look it up.
 
@@ -86,7 +100,7 @@ Look it up.
 We can now finally apply the actual ingressRoutes, with:
 
 ```bash
-kubectl apply -f 04-ingressroutes.yml
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.3/docs/content/user-guides/crd-acme/04-ingressroutes.yml
 ```
 
 ```yaml
@@ -105,3 +119,16 @@ curl http://your.example.com:8000/notls
 ```
 
 Note that you'll have to use `-k` as long as you're using the staging server of Let's Encrypt, since it is not an authorized certificate authority on systems where it hasn't been manually added.
+
+### Force TLS v1.2+
+
+Nowadays, TLS v1.0 and v1.1 are deprecated.
+In order to force TLS v1.2 or later on all your IngressRoute, you can define the `default` TLSOption:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.3/docs/content/user-guides/crd-acme/05-tlsoption.yml
+```
+
+```yaml
+--8<-- "content/user-guides/crd-acme/05-tlsoption.yml"
+```

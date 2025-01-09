@@ -1,3 +1,8 @@
+---
+title: "Traefik Datadog Metrics Documentation"
+description: "Traefik Proxy supports Datadog for backend metrics. Read the technical documentation to enable Datadog for observability."
+---
+
 # Datadog
 
 To enable the Datadog:
@@ -21,6 +26,10 @@ metrics:
 _Required, Default="127.0.0.1:8125"_
 
 Address instructs exporter to send metrics to datadog-agent at this address.
+
+This address can be a Unix Domain Socket (UDS) in the following format: `unix:///path/to/datadog.socket`.
+When the prefix is set to `unix`, the socket type will be automatically determined. 
+To explicitly define the socket type and avoid automatic detection, you can use the prefixes `unixgram` for `SOCK_DGRAM` (datagram sockets) and `unixstream` for `SOCK_STREAM` (stream sockets), respectively.
 
 ```yaml tab="File (YAML)"
 metrics:
@@ -59,7 +68,8 @@ metrics:
 ```bash tab="CLI"
 --metrics.datadog.addEntryPointsLabels=true
 ```
-#### `AddRoutersLabels`
+
+#### `addRoutersLabels`
 
 _Optional, Default=false_
 
@@ -118,7 +128,7 @@ metrics:
 ```toml tab="File (TOML)"
 [metrics]
   [metrics.datadog]
-    pushInterval = 10s
+    pushInterval = "10s"
 ```
 
 ```bash tab="CLI"
@@ -144,5 +154,5 @@ metrics:
 ```
 
 ```bash tab="CLI"
---metrics.datadog.prefix="traefik"
+--metrics.datadog.prefix=traefik
 ```

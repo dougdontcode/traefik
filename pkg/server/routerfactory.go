@@ -3,46 +3,61 @@ package server
 import (
 	"context"
 
-	"github.com/traefik/traefik/v2/pkg/config/runtime"
-	"github.com/traefik/traefik/v2/pkg/config/static"
-	"github.com/traefik/traefik/v2/pkg/log"
-	"github.com/traefik/traefik/v2/pkg/metrics"
-	"github.com/traefik/traefik/v2/pkg/server/middleware"
-	middlewaretcp "github.com/traefik/traefik/v2/pkg/server/middleware/tcp"
-	"github.com/traefik/traefik/v2/pkg/server/router"
-	routertcp "github.com/traefik/traefik/v2/pkg/server/router/tcp"
-	routerudp "github.com/traefik/traefik/v2/pkg/server/router/udp"
-	"github.com/traefik/traefik/v2/pkg/server/service"
-	"github.com/traefik/traefik/v2/pkg/server/service/tcp"
-	"github.com/traefik/traefik/v2/pkg/server/service/udp"
-	tcpCore "github.com/traefik/traefik/v2/pkg/tcp"
-	"github.com/traefik/traefik/v2/pkg/tls"
-	udpCore "github.com/traefik/traefik/v2/pkg/udp"
+	"github.com/rs/zerolog/log"
+	"github.com/traefik/traefik/v3/pkg/config/runtime"
+	"github.com/traefik/traefik/v3/pkg/config/static"
+	"github.com/traefik/traefik/v3/pkg/server/middleware"
+	tcpmiddleware "github.com/traefik/traefik/v3/pkg/server/middleware/tcp"
+	"github.com/traefik/traefik/v3/pkg/server/router"
+	tcprouter "github.com/traefik/traefik/v3/pkg/server/router/tcp"
+	udprouter "github.com/traefik/traefik/v3/pkg/server/router/udp"
+	"github.com/traefik/traefik/v3/pkg/server/service"
+	tcpsvc "github.com/traefik/traefik/v3/pkg/server/service/tcp"
+	udpsvc "github.com/traefik/traefik/v3/pkg/server/service/udp"
+	"github.com/traefik/traefik/v3/pkg/tcp"
+	"github.com/traefik/traefik/v3/pkg/tls"
+	"github.com/traefik/traefik/v3/pkg/udp"
 )
 
 // RouterFactory the factory of TCP/UDP routers.
 type RouterFactory struct {
-	entryPointsTCP []string
-	entryPointsUDP []string
+	entryPointsTCP  []string
+	entryPointsUDP  []string
+	allowACMEByPass map[string]bool
 
-	managerFactory  *service.ManagerFactory
-	metricsRegistry metrics.Registry
+	managerFactory *service.ManagerFactory
 
 	pluginBuilder middleware.PluginsBuilder
 
-	chainBuilder *middleware.ChainBuilder
-	tlsManager   *tls.Manager
+	observabilityMgr *middleware.ObservabilityMgr
+	tlsManager       *tls.Manager
+
+	dialerManager *tcp.DialerManager
+
+	cancelPrevState func()
 }
 
 // NewRouterFactory creates a new RouterFactory.
 func NewRouterFactory(staticConfiguration static.Configuration, managerFactory *service.ManagerFactory, tlsManager *tls.Manager,
-	chainBuilder *middleware.ChainBuilder, pluginBuilder middleware.PluginsBuilder, metricsRegistry metrics.Registry) *RouterFactory {
+	observabilityMgr *middleware.ObservabilityMgr, pluginBuilder middleware.PluginsBuilder, dialerManager *tcp.DialerManager,
+) *RouterFactory {
+	handlesTLSChallenge := false
+	for _, resolver := range staticConfiguration.CertificatesResolvers {
+		if resolver.ACME != nil && resolver.ACME.TLSChallenge != nil {
+			handlesTLSChallenge = true
+			break
+		}
+	}
+
+	allowACMEByPass := map[string]bool{}
 	var entryPointsTCP, entryPointsUDP []string
-	for name, cfg := range staticConfiguration.EntryPoints {
-		protocol, err := cfg.GetProtocol()
+	for name, ep := range staticConfiguration.EntryPoints {
+		allowACMEByPass[name] = ep.AllowACMEByPass || !handlesTLSChallenge
+
+		protocol, err := ep.GetProtocol()
 		if err != nil {
 			// Should never happen because Traefik should not start if protocol is invalid.
-			log.WithoutContext().Errorf("Invalid protocol: %v", err)
+			log.Error().Err(err).Msg("Invalid protocol")
 		}
 
 		if protocol == "udp" {
@@ -53,43 +68,55 @@ func NewRouterFactory(staticConfiguration static.Configuration, managerFactory *
 	}
 
 	return &RouterFactory{
-		entryPointsTCP:  entryPointsTCP,
-		entryPointsUDP:  entryPointsUDP,
-		managerFactory:  managerFactory,
-		metricsRegistry: metricsRegistry,
-		tlsManager:      tlsManager,
-		chainBuilder:    chainBuilder,
-		pluginBuilder:   pluginBuilder,
+		entryPointsTCP:   entryPointsTCP,
+		entryPointsUDP:   entryPointsUDP,
+		managerFactory:   managerFactory,
+		observabilityMgr: observabilityMgr,
+		tlsManager:       tlsManager,
+		pluginBuilder:    pluginBuilder,
+		dialerManager:    dialerManager,
+		allowACMEByPass:  allowACMEByPass,
 	}
 }
 
 // CreateRouters creates new TCPRouters and UDPRouters.
-func (f *RouterFactory) CreateRouters(rtConf *runtime.Configuration) (map[string]*tcpCore.Router, map[string]udpCore.Handler) {
-	ctx := context.Background()
+func (f *RouterFactory) CreateRouters(rtConf *runtime.Configuration) (map[string]*tcprouter.Router, map[string]udp.Handler) {
+	if f.cancelPrevState != nil {
+		f.cancelPrevState()
+	}
+
+	var ctx context.Context
+	ctx, f.cancelPrevState = context.WithCancel(context.Background())
 
 	// HTTP
 	serviceManager := f.managerFactory.Build(rtConf)
 
 	middlewaresBuilder := middleware.NewBuilder(rtConf.Middlewares, serviceManager, f.pluginBuilder)
 
-	routerManager := router.NewManager(rtConf, serviceManager, middlewaresBuilder, f.chainBuilder, f.metricsRegistry)
+	routerManager := router.NewManager(rtConf, serviceManager, middlewaresBuilder, f.observabilityMgr, f.tlsManager)
 
 	handlersNonTLS := routerManager.BuildHandlers(ctx, f.entryPointsTCP, false)
 	handlersTLS := routerManager.BuildHandlers(ctx, f.entryPointsTCP, true)
 
-	serviceManager.LaunchHealthCheck()
+	serviceManager.LaunchHealthCheck(ctx)
 
 	// TCP
-	svcTCPManager := tcp.NewManager(rtConf)
+	svcTCPManager := tcpsvc.NewManager(rtConf, f.dialerManager)
 
-	middlewaresTCPBuilder := middlewaretcp.NewBuilder(rtConf.TCPMiddlewares)
+	middlewaresTCPBuilder := tcpmiddleware.NewBuilder(rtConf.TCPMiddlewares)
 
-	rtTCPManager := routertcp.NewManager(rtConf, svcTCPManager, middlewaresTCPBuilder, handlersNonTLS, handlersTLS, f.tlsManager)
+	rtTCPManager := tcprouter.NewManager(rtConf, svcTCPManager, middlewaresTCPBuilder, handlersNonTLS, handlersTLS, f.tlsManager)
 	routersTCP := rtTCPManager.BuildHandlers(ctx, f.entryPointsTCP)
 
+	for ep, r := range routersTCP {
+		if allowACMEByPass, ok := f.allowACMEByPass[ep]; ok && allowACMEByPass {
+			r.EnableACMETLSPassthrough()
+		}
+	}
+
 	// UDP
-	svcUDPManager := udp.NewManager(rtConf)
-	rtUDPManager := routerudp.NewManager(rtConf, svcUDPManager)
+	svcUDPManager := udpsvc.NewManager(rtConf)
+	rtUDPManager := udprouter.NewManager(rtConf, svcUDPManager)
 	routersUDP := rtUDPManager.BuildHandlers(ctx, f.entryPointsUDP)
 
 	rtConf.PopulateUsedBy()

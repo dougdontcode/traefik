@@ -1,3 +1,8 @@
+---
+title: "Consul Catalog Configuration Discovery"
+description: "Learn how to use Consul Catalog as a provider for configuration discovery in Traefik Proxy. Read the technical documentation."
+---
+
 # Traefik & Consul Catalog
 
 A Story of Tags, Services & Instances
@@ -362,13 +367,14 @@ providers:
 
 _Optional_
 
-Defines TLS options for Consul server endpoint.
+Defines the TLS configuration used for the secure connection to Consul Catalog.
 
 ##### `ca`
 
 _Optional_
 
-`ca` is the path to the CA certificate used for Consul communication, defaults to the system bundle if not specified.
+`ca` is the path to the certificate authority used for the secure connection to Consul Catalog,
+it defaults to the system bundle.
 
 ```yaml tab="File (YAML)"
 providers:
@@ -387,43 +393,11 @@ providers:
 --providers.consulcatalog.endpoint.tls.ca=path/to/ca.crt
 ```
 
-##### `caOptional`
-
-_Optional_
-
-The value of `tls.caOptional` defines which policy should be used for the secure connection with TLS Client Authentication to Consul.
-
-!!! warning ""
-
-    If `tls.ca` is undefined, this option will be ignored, and no client certificate will be requested during the handshake. Any provided certificate will thus never be verified.
-
-When this option is set to `true`, a client certificate is requested during the handshake but is not required. If a certificate is sent, it is required to be valid.
-
-When this option is set to `false`, a client certificate is requested during the handshake, and at least one valid certificate should be sent by the client.
-
-```yaml tab="File (YAML)"
-providers:
-  consulCatalog:
-    endpoint:
-      tls:
-        caOptional: true
-```
-
-```toml tab="File (TOML)"
-[providers.consulCatalog.endpoint.tls]
-  caOptional = true
-```
-
-```bash tab="CLI"
---providers.consulcatalog.endpoint.tls.caoptional=true
-```
-
 ##### `cert`
 
 _Optional_
 
-`cert` is the path to the public certificate to use for Consul communication.
-
+`cert` is the path to the public certificate used for the secure connection to Consul Catalog.
 When using this option, setting the `key` option is required.
 
 ```yaml tab="File (YAML)"
@@ -450,8 +424,7 @@ providers:
 
 _Optional_
 
-`key` is the path to the private key for Consul communication.
-
+`key` is the path to the private key used for the secure connection to Consul Catalog.
 When using this option, setting the `cert` option is required.
 
 ```yaml tab="File (YAML)"
@@ -476,7 +449,7 @@ providers:
 
 ##### `insecureSkipVerify`
 
-_Optional_
+_Optional, Default=false_
 
 If `insecureSkipVerify` is `true`, the TLS connection to Consul accepts any certificate presented by the server regardless of the hostnames it covers.
 
@@ -552,9 +525,16 @@ providers:
 ```
 
 ```bash tab="CLI"
---providers.consulcatalog.defaultRule="Host(`{{ .Name }}.{{ index .Labels \"customLabel\"}}`)"
+--providers.consulcatalog.defaultRule='Host(`{{ .Name }}.{{ index .Labels "customLabel"}}`)'
 # ...
 ```
+
+??? info "Default rule and Traefik service"
+
+    The exposure of the Traefik container, combined with the default rule mechanism,
+    can lead to create a router targeting itself in a loop.
+    In this case, to prevent an infinite loop,
+    Traefik adds an internal middleware to refuse the request if it comes from the same router.
 
 ### `connectAware`
 
@@ -693,3 +673,93 @@ providers:
 ```
 
 For additional information, refer to [Restrict the Scope of Service Discovery](./overview.md#restrict-the-scope-of-service-discovery).
+
+### `namespaces`
+
+_Optional, Default=""_
+
+The `namespaces` option defines the namespaces in which the consul catalog services will be discovered.
+When using the `namespaces` option, the discovered configuration object names will be suffixed as shown below:
+
+```text
+<resource-name>@consulcatalog-<namespace>
+```
+
+!!! warning
+
+    The namespaces option only works with [Consul Enterprise](https://www.consul.io/docs/enterprise),
+    which provides the [Namespaces](https://www.consul.io/docs/enterprise/namespaces) feature.
+
+!!! warning
+
+    One should only define either the `namespaces` option or the `namespace` option.
+
+```yaml tab="File (YAML)"
+providers:
+  consulCatalog:
+    namespaces: 
+      - "ns1"
+      - "ns2"
+    # ...
+```
+
+```toml tab="File (TOML)"
+[providers.consulCatalog]
+  namespaces = ["ns1", "ns2"]
+  # ...
+```
+
+```bash tab="CLI"
+--providers.consulcatalog.namespaces=ns1,ns2
+# ...
+```
+
+### `strictChecks`
+
+_Optional, Default="passing,warning"_
+
+Define which [Consul Service health checks](https://developer.hashicorp.com/consul/docs/services/usage/checks#define-initial-health-check-status) are allowed to take on traffic.
+
+```yaml tab="File (YAML)"
+providers:
+  consulCatalog:
+    strictChecks: 
+      - "passing"
+      - "warning"
+    # ...
+```
+
+```toml tab="File (TOML)"
+[providers.consulCatalog]
+  strictChecks = ["passing", "warning"]
+  # ...
+```
+
+```bash tab="CLI"
+--providers.consulcatalog.strictChecks=passing,warning
+# ...
+```
+
+### `watch`
+
+_Optional, Default=false_
+
+When set to `true`, watches for Consul changes ([Consul watches checks](https://www.consul.io/docs/dynamic-app-config/watches#checks)).
+
+```yaml tab="File (YAML)"
+providers:
+  consulCatalog:
+    watch: true
+    # ...
+```
+
+```toml tab="File (TOML)"
+[providers.consulCatalog]
+  watch = true
+  # ...
+```
+
+```bash tab="CLI"
+--providers.consulcatalog.watch=true
+# ...
+```

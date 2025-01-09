@@ -1,3 +1,8 @@
+---
+title: "Traefik RedirectScheme Documentation"
+description: "In Traefik Proxy's HTTP middleware, RedirectScheme redirects clients to different schemes/ports. Read the technical documentation."
+---
+
 # RedirectScheme
 
 Redirecting the Client to a Different Scheme/Port
@@ -7,11 +12,20 @@ Redirecting the Client to a Different Scheme/Port
 TODO: add schema
 -->
 
-RedirectScheme redirects requests from a scheme/port to another.
+The RedirectScheme middleware redirects the request if the request scheme is different from the configured scheme.
+
+!!! warning "When behind another reverse-proxy"
+
+    When there is at least one other reverse-proxy between the client and Traefik, 
+    the other reverse-proxy (i.e. the last hop) needs to be a [trusted](../../routing/entrypoints.md#forwarded-headers) one. 
+    
+    Otherwise, Traefik would clean up the X-Forwarded headers coming from this last hop, 
+    and as the RedirectScheme middleware relies on them to determine the scheme used,
+    it would not function as intended.
 
 ## Configuration Examples
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Redirect to https
 labels:
   - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
@@ -20,7 +34,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Redirect to https
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-redirectscheme
@@ -31,20 +45,6 @@ spec:
 ```
 
 ```yaml tab="Consul Catalog"
-# Redirect to https
-labels:
-  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
-  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.permanent=true"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme": "https"
-  "traefik.http.middlewares.test-redirectscheme.redirectscheme.permanent": "true"
-}
-```
-
-```yaml tab="Rancher"
 # Redirect to https
 labels:
   - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
@@ -75,7 +75,7 @@ http:
 
 Set the `permanent` option to `true` to apply a permanent redirection.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Redirect to https
 labels:
   # ...
@@ -84,7 +84,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Redirect to https
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-redirectscheme
@@ -95,20 +95,6 @@ spec:
 ```
 
 ```yaml tab="Consul Catalog"
-# Redirect to https
-labels:
-  # ...
-  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.permanent=true"
-```
-
-```json tab="Marathon"
-"labels": {
-
-  "traefik.http.middlewares.test-redirectscheme.redirectscheme.permanent": "true"
-}
-```
-
-```yaml tab="Rancher"
 # Redirect to https
 labels:
   # ...
@@ -137,7 +123,7 @@ http:
 
 The `scheme` option defines the scheme of the new URL.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Redirect to https
 labels:
   - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
@@ -145,7 +131,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Redirect to https
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-redirectscheme
@@ -155,18 +141,6 @@ spec:
 ```
 
 ```yaml tab="Consul Catalog"
-# Redirect to https
-labels:
-  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme": "https"
-}
-```
-
-```yaml tab="Rancher"
 # Redirect to https
 labels:
   - "traefik.http.middlewares.test-redirectscheme.redirectscheme.scheme=https"
@@ -192,7 +166,7 @@ http:
 
 The `port` option defines the port of the new URL.
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Redirect to https
 labels:
   # ...
@@ -201,7 +175,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Redirect to https
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-redirectscheme
@@ -212,20 +186,6 @@ spec:
 ```
 
 ```yaml tab="Consul Catalog"
-# Redirect to https
-labels:
-  # ...
-  - "traefik.http.middlewares.test-redirectscheme.redirectscheme.port=443"
-```
-
-```json tab="Marathon"
-"labels": {
-
-  "traefik.http.middlewares.test-redirectscheme.redirectscheme.port": "443"
-}
-```
-
-```yaml tab="Rancher"
 # Redirect to https
 labels:
   # ...

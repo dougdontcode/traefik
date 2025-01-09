@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -72,22 +73,16 @@ func NewCentrifuge(rootPkg string) (*Centrifuge, error) {
 
 // Run runs the code extraction and the code generation.
 func (c Centrifuge) Run(dest string, pkgName string) error {
-	files, err := c.run(c.pkg.Scope(), c.rootPkg, pkgName)
-	if err != nil {
-		return err
-	}
+	files := c.run(c.pkg.Scope(), c.rootPkg, pkgName)
 
-	err = fileWriter{baseDir: dest}.Write(files)
+	err := fileWriter{baseDir: dest}.Write(files)
 	if err != nil {
 		return err
 	}
 
 	for _, p := range c.pkg.Imports() {
-		if contains(c.IncludedImports, p.Path()) {
-			fls, err := c.run(p.Scope(), p.Path(), p.Name())
-			if err != nil {
-				return err
-			}
+		if slices.Contains(c.IncludedImports, p.Path()) {
+			fls := c.run(p.Scope(), p.Path(), p.Name())
 
 			err = fileWriter{baseDir: filepath.Join(dest, p.Name())}.Write(fls)
 			if err != nil {
@@ -99,11 +94,11 @@ func (c Centrifuge) Run(dest string, pkgName string) error {
 	return err
 }
 
-func (c Centrifuge) run(sc *types.Scope, rootPkg string, pkgName string) (map[string]*File, error) {
+func (c Centrifuge) run(sc *types.Scope, rootPkg string, pkgName string) map[string]*File {
 	files := map[string]*File{}
 
 	for _, name := range sc.Names() {
-		if contains(c.ExcludedTypes, name) {
+		if slices.Contains(c.ExcludedTypes, name) {
 			continue
 		}
 
@@ -113,7 +108,7 @@ func (c Centrifuge) run(sc *types.Scope, rootPkg string, pkgName string) (map[st
 		}
 
 		filename := filepath.Base(c.fileSet.File(o.Pos()).Name())
-		if contains(c.ExcludedFiles, path.Join(rootPkg, filename)) {
+		if slices.Contains(c.ExcludedFiles, path.Join(rootPkg, filename)) {
 			continue
 		}
 
@@ -158,14 +153,14 @@ func (c Centrifuge) run(sc *types.Scope, rootPkg string, pkgName string) (map[st
 		}
 	}
 
-	return files, nil
+	return files
 }
 
 func (c Centrifuge) writeStruct(name string, obj *types.Struct, rootPkg string, elt *File) string {
 	b := strings.Builder{}
 	b.WriteString(fmt.Sprintf("type %s struct {\n", name))
 
-	for i := 0; i < obj.NumFields(); i++ {
+	for i := range obj.NumFields() {
 		field := obj.Field(i)
 
 		if !field.Exported() {
@@ -241,16 +236,6 @@ func extractPackage(t types.Type) string {
 	default:
 		return ""
 	}
-}
-
-func contains(values []string, value string) bool {
-	for _, val := range values {
-		if val == value {
-			return true
-		}
-	}
-
-	return false
 }
 
 type fileWriter struct {

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,10 +11,9 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
-	"github.com/traefik/traefik/v2/pkg/log"
-	"github.com/traefik/traefik/v2/pkg/safe"
-	"github.com/traefik/traefik/v2/pkg/types"
+	"github.com/rs/zerolog/log"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/types"
 )
 
 const (
@@ -24,38 +21,40 @@ const (
 	MetricNamePrefix = "traefik_"
 
 	// server meta information.
-	metricConfigPrefix             = MetricNamePrefix + "config_"
-	configReloadsTotalName         = metricConfigPrefix + "reloads_total"
-	configReloadsFailuresTotalName = metricConfigPrefix + "reloads_failure_total"
-	configLastReloadSuccessName    = metricConfigPrefix + "last_reload_success"
-	configLastReloadFailureName    = metricConfigPrefix + "last_reload_failure"
+	metricConfigPrefix          = MetricNamePrefix + "config_"
+	configReloadsTotalName      = metricConfigPrefix + "reloads_total"
+	configLastReloadSuccessName = metricConfigPrefix + "last_reload_success"
+	openConnectionsName         = MetricNamePrefix + "open_connections"
 
 	// TLS.
-	metricsTLSPrefix          = MetricNamePrefix + "tls_"
-	tlsCertsNotAfterTimestamp = metricsTLSPrefix + "certs_not_after"
+	metricsTLSPrefix              = MetricNamePrefix + "tls_"
+	tlsCertsNotAfterTimestampName = metricsTLSPrefix + "certs_not_after"
 
 	// entry point.
-	metricEntryPointPrefix     = MetricNamePrefix + "entrypoint_"
-	entryPointReqsTotalName    = metricEntryPointPrefix + "requests_total"
-	entryPointReqsTLSTotalName = metricEntryPointPrefix + "requests_tls_total"
-	entryPointReqDurationName  = metricEntryPointPrefix + "request_duration_seconds"
-	entryPointOpenConnsName    = metricEntryPointPrefix + "open_connections"
+	metricEntryPointPrefix        = MetricNamePrefix + "entrypoint_"
+	entryPointReqsTotalName       = metricEntryPointPrefix + "requests_total"
+	entryPointReqsTLSTotalName    = metricEntryPointPrefix + "requests_tls_total"
+	entryPointReqDurationName     = metricEntryPointPrefix + "request_duration_seconds"
+	entryPointReqsBytesTotalName  = metricEntryPointPrefix + "requests_bytes_total"
+	entryPointRespsBytesTotalName = metricEntryPointPrefix + "responses_bytes_total"
 
 	// router level.
-	metricRouterPrefix     = MetricNamePrefix + "router_"
-	routerReqsTotalName    = metricRouterPrefix + "requests_total"
-	routerReqsTLSTotalName = metricRouterPrefix + "requests_tls_total"
-	routerReqDurationName  = metricRouterPrefix + "request_duration_seconds"
-	routerOpenConnsName    = metricRouterPrefix + "open_connections"
+	metricRouterPrefix        = MetricNamePrefix + "router_"
+	routerReqsTotalName       = metricRouterPrefix + "requests_total"
+	routerReqsTLSTotalName    = metricRouterPrefix + "requests_tls_total"
+	routerReqDurationName     = metricRouterPrefix + "request_duration_seconds"
+	routerReqsBytesTotalName  = metricRouterPrefix + "requests_bytes_total"
+	routerRespsBytesTotalName = metricRouterPrefix + "responses_bytes_total"
 
 	// service level.
-	metricServicePrefix     = MetricNamePrefix + "service_"
-	serviceReqsTotalName    = metricServicePrefix + "requests_total"
-	serviceReqsTLSTotalName = metricServicePrefix + "requests_tls_total"
-	serviceReqDurationName  = metricServicePrefix + "request_duration_seconds"
-	serviceOpenConnsName    = metricServicePrefix + "open_connections"
-	serviceRetriesTotalName = metricServicePrefix + "retries_total"
-	serviceServerUpName     = metricServicePrefix + "server_up"
+	metricServicePrefix        = MetricNamePrefix + "service_"
+	serviceReqsTotalName       = metricServicePrefix + "requests_total"
+	serviceReqsTLSTotalName    = metricServicePrefix + "requests_tls_total"
+	serviceReqDurationName     = metricServicePrefix + "request_duration_seconds"
+	serviceRetriesTotalName    = metricServicePrefix + "retries_total"
+	serviceServerUpName        = metricServicePrefix + "server_up"
+	serviceReqsBytesTotalName  = metricServicePrefix + "requests_bytes_total"
+	serviceRespsBytesTotalName = metricServicePrefix + "responses_bytes_total"
 )
 
 // promState holds all metric state internally and acts as the only Collector we register for Prometheus.
@@ -87,14 +86,14 @@ func RegisterPrometheus(ctx context.Context, config *types.Prometheus) Registry 
 	if err := promRegistry.Register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})); err != nil {
 		var arErr stdprometheus.AlreadyRegisteredError
 		if !errors.As(err, &arErr) {
-			log.FromContext(ctx).Warn("ProcessCollector is already registered")
+			log.Ctx(ctx).Warn().Msg("ProcessCollector is already registered")
 		}
 	}
 
 	if err := promRegistry.Register(collectors.NewGoCollector()); err != nil {
 		var arErr stdprometheus.AlreadyRegisteredError
 		if !errors.As(err, &arErr) {
-			log.FromContext(ctx).Warn("GoCollector is already registered")
+			log.Ctx(ctx).Warn().Msg("GoCollector is already registered")
 		}
 	}
 
@@ -111,37 +110,28 @@ func initStandardRegistry(config *types.Prometheus) Registry {
 		buckets = config.Buckets
 	}
 
-	safe.Go(func() {
-		promState.ListenValueUpdates()
-	})
-
-	configReloads := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+	configReloads := newCounterFrom(stdprometheus.CounterOpts{
 		Name: configReloadsTotalName,
 		Help: "Config reloads",
 	}, []string{})
-	configReloadsFailures := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
-		Name: configReloadsFailuresTotalName,
-		Help: "Config failure reloads",
-	}, []string{})
-	lastConfigReloadSuccess := newGaugeFrom(promState.collectors, stdprometheus.GaugeOpts{
+	lastConfigReloadSuccess := newGaugeFrom(stdprometheus.GaugeOpts{
 		Name: configLastReloadSuccessName,
 		Help: "Last config reload success",
 	}, []string{})
-	lastConfigReloadFailure := newGaugeFrom(promState.collectors, stdprometheus.GaugeOpts{
-		Name: configLastReloadFailureName,
-		Help: "Last config reload failure",
-	}, []string{})
-	tlsCertsNotAfterTimesptamp := newGaugeFrom(promState.collectors, stdprometheus.GaugeOpts{
-		Name: tlsCertsNotAfterTimestamp,
+	tlsCertsNotAfterTimestamp := newGaugeFrom(stdprometheus.GaugeOpts{
+		Name: tlsCertsNotAfterTimestampName,
 		Help: "Certificate expiration timestamp",
 	}, []string{"cn", "serial", "sans"})
+	openConnections := newGaugeFrom(stdprometheus.GaugeOpts{
+		Name: openConnectionsName,
+		Help: "How many open connections exist, by entryPoint and protocol",
+	}, []string{"entrypoint", "protocol"})
 
-	promState.describers = []func(chan<- *stdprometheus.Desc){
-		configReloads.cv.Describe,
-		configReloadsFailures.cv.Describe,
-		lastConfigReloadSuccess.gv.Describe,
-		lastConfigReloadFailure.gv.Describe,
-		tlsCertsNotAfterTimesptamp.gv.Describe,
+	promState.vectors = []vector{
+		configReloads.cv,
+		lastConfigReloadSuccess.gv,
+		tlsCertsNotAfterTimestamp.gv,
+		openConnections.gv,
 	}
 
 	reg := &standardRegistry{
@@ -149,117 +139,134 @@ func initStandardRegistry(config *types.Prometheus) Registry {
 		routerEnabled:                  config.AddRoutersLabels,
 		svcEnabled:                     config.AddServicesLabels,
 		configReloadsCounter:           configReloads,
-		configReloadsFailureCounter:    configReloadsFailures,
 		lastConfigReloadSuccessGauge:   lastConfigReloadSuccess,
-		lastConfigReloadFailureGauge:   lastConfigReloadFailure,
-		tlsCertsNotAfterTimestampGauge: tlsCertsNotAfterTimesptamp,
+		tlsCertsNotAfterTimestampGauge: tlsCertsNotAfterTimestamp,
+		openConnectionsGauge:           openConnections,
 	}
 
 	if config.AddEntryPointsLabels {
-		entryPointReqs := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+		entryPointReqs := newCounterWithHeadersFrom(stdprometheus.CounterOpts{
 			Name: entryPointReqsTotalName,
 			Help: "How many HTTP requests processed on an entrypoint, partitioned by status code, protocol, and method.",
-		}, []string{"code", "method", "protocol", "entrypoint"})
-		entryPointReqsTLS := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+		}, config.HeaderLabels, []string{"code", "method", "protocol", "entrypoint"})
+		entryPointReqsTLS := newCounterFrom(stdprometheus.CounterOpts{
 			Name: entryPointReqsTLSTotalName,
 			Help: "How many HTTP requests with TLS processed on an entrypoint, partitioned by TLS Version and TLS cipher Used.",
 		}, []string{"tls_version", "tls_cipher", "entrypoint"})
-		entryPointReqDurations := newHistogramFrom(promState.collectors, stdprometheus.HistogramOpts{
+		entryPointReqDurations := newHistogramFrom(stdprometheus.HistogramOpts{
 			Name:    entryPointReqDurationName,
 			Help:    "How long it took to process the request on an entrypoint, partitioned by status code, protocol, and method.",
 			Buckets: buckets,
 		}, []string{"code", "method", "protocol", "entrypoint"})
-		entryPointOpenConns := newGaugeFrom(promState.collectors, stdprometheus.GaugeOpts{
-			Name: entryPointOpenConnsName,
-			Help: "How many open connections exist on an entrypoint, partitioned by method and protocol.",
-		}, []string{"method", "protocol", "entrypoint"})
+		entryPointReqsBytesTotal := newCounterFrom(stdprometheus.CounterOpts{
+			Name: entryPointReqsBytesTotalName,
+			Help: "The total size of requests in bytes handled by an entrypoint, partitioned by status code, protocol, and method.",
+		}, []string{"code", "method", "protocol", "entrypoint"})
+		entryPointRespsBytesTotal := newCounterFrom(stdprometheus.CounterOpts{
+			Name: entryPointRespsBytesTotalName,
+			Help: "The total size of responses in bytes handled by an entrypoint, partitioned by status code, protocol, and method.",
+		}, []string{"code", "method", "protocol", "entrypoint"})
 
-		promState.describers = append(promState.describers, []func(chan<- *stdprometheus.Desc){
-			entryPointReqs.cv.Describe,
-			entryPointReqsTLS.cv.Describe,
-			entryPointReqDurations.hv.Describe,
-			entryPointOpenConns.gv.Describe,
-		}...)
+		promState.vectors = append(promState.vectors,
+			entryPointReqs.cv,
+			entryPointReqsTLS.cv,
+			entryPointReqDurations.hv,
+			entryPointReqsBytesTotal.cv,
+			entryPointRespsBytesTotal.cv,
+		)
 
 		reg.entryPointReqsCounter = entryPointReqs
 		reg.entryPointReqsTLSCounter = entryPointReqsTLS
 		reg.entryPointReqDurationHistogram, _ = NewHistogramWithScale(entryPointReqDurations, time.Second)
-		reg.entryPointOpenConnsGauge = entryPointOpenConns
+		reg.entryPointReqsBytesCounter = entryPointReqsBytesTotal
+		reg.entryPointRespsBytesCounter = entryPointRespsBytesTotal
 	}
 
 	if config.AddRoutersLabels {
-		routerReqs := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+		routerReqs := newCounterWithHeadersFrom(stdprometheus.CounterOpts{
 			Name: routerReqsTotalName,
 			Help: "How many HTTP requests are processed on a router, partitioned by service, status code, protocol, and method.",
-		}, []string{"code", "method", "protocol", "router", "service"})
-		routerReqsTLS := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+		}, config.HeaderLabels, []string{"code", "method", "protocol", "router", "service"})
+		routerReqsTLS := newCounterFrom(stdprometheus.CounterOpts{
 			Name: routerReqsTLSTotalName,
 			Help: "How many HTTP requests with TLS are processed on a router, partitioned by service, TLS Version, and TLS cipher Used.",
 		}, []string{"tls_version", "tls_cipher", "router", "service"})
-		routerReqDurations := newHistogramFrom(promState.collectors, stdprometheus.HistogramOpts{
+		routerReqDurations := newHistogramFrom(stdprometheus.HistogramOpts{
 			Name:    routerReqDurationName,
 			Help:    "How long it took to process the request on a router, partitioned by service, status code, protocol, and method.",
 			Buckets: buckets,
 		}, []string{"code", "method", "protocol", "router", "service"})
-		routerOpenConns := newGaugeFrom(promState.collectors, stdprometheus.GaugeOpts{
-			Name: routerOpenConnsName,
-			Help: "How many open connections exist on a router, partitioned by service, method, and protocol.",
-		}, []string{"method", "protocol", "router", "service"})
+		routerReqsBytesTotal := newCounterFrom(stdprometheus.CounterOpts{
+			Name: routerReqsBytesTotalName,
+			Help: "The total size of requests in bytes handled by a router, partitioned by service, status code, protocol, and method.",
+		}, []string{"code", "method", "protocol", "router", "service"})
+		routerRespsBytesTotal := newCounterFrom(stdprometheus.CounterOpts{
+			Name: routerRespsBytesTotalName,
+			Help: "The total size of responses in bytes handled by a router, partitioned by service, status code, protocol, and method.",
+		}, []string{"code", "method", "protocol", "router", "service"})
 
-		promState.describers = append(promState.describers, []func(chan<- *stdprometheus.Desc){
-			routerReqs.cv.Describe,
-			routerReqsTLS.cv.Describe,
-			routerReqDurations.hv.Describe,
-			routerOpenConns.gv.Describe,
-		}...)
+		promState.vectors = append(promState.vectors,
+			routerReqs.cv,
+			routerReqsTLS.cv,
+			routerReqDurations.hv,
+			routerReqsBytesTotal.cv,
+			routerRespsBytesTotal.cv,
+		)
 		reg.routerReqsCounter = routerReqs
 		reg.routerReqsTLSCounter = routerReqsTLS
 		reg.routerReqDurationHistogram, _ = NewHistogramWithScale(routerReqDurations, time.Second)
-		reg.routerOpenConnsGauge = routerOpenConns
+		reg.routerReqsBytesCounter = routerReqsBytesTotal
+		reg.routerRespsBytesCounter = routerRespsBytesTotal
 	}
 
 	if config.AddServicesLabels {
-		serviceReqs := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+		serviceReqs := newCounterWithHeadersFrom(stdprometheus.CounterOpts{
 			Name: serviceReqsTotalName,
 			Help: "How many HTTP requests processed on a service, partitioned by status code, protocol, and method.",
-		}, []string{"code", "method", "protocol", "service"})
-		serviceReqsTLS := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+		}, config.HeaderLabels, []string{"code", "method", "protocol", "service"})
+		serviceReqsTLS := newCounterFrom(stdprometheus.CounterOpts{
 			Name: serviceReqsTLSTotalName,
 			Help: "How many HTTP requests with TLS processed on a service, partitioned by TLS version and TLS cipher.",
 		}, []string{"tls_version", "tls_cipher", "service"})
-		serviceReqDurations := newHistogramFrom(promState.collectors, stdprometheus.HistogramOpts{
+		serviceReqDurations := newHistogramFrom(stdprometheus.HistogramOpts{
 			Name:    serviceReqDurationName,
 			Help:    "How long it took to process the request on a service, partitioned by status code, protocol, and method.",
 			Buckets: buckets,
 		}, []string{"code", "method", "protocol", "service"})
-		serviceOpenConns := newGaugeFrom(promState.collectors, stdprometheus.GaugeOpts{
-			Name: serviceOpenConnsName,
-			Help: "How many open connections exist on a service, partitioned by method and protocol.",
-		}, []string{"method", "protocol", "service"})
-		serviceRetries := newCounterFrom(promState.collectors, stdprometheus.CounterOpts{
+		serviceRetries := newCounterFrom(stdprometheus.CounterOpts{
 			Name: serviceRetriesTotalName,
 			Help: "How many request retries happened on a service.",
 		}, []string{"service"})
-		serviceServerUp := newGaugeFrom(promState.collectors, stdprometheus.GaugeOpts{
+		serviceServerUp := newGaugeFrom(stdprometheus.GaugeOpts{
 			Name: serviceServerUpName,
 			Help: "service server is up, described by gauge value of 0 or 1.",
 		}, []string{"service", "url"})
+		serviceReqsBytesTotal := newCounterFrom(stdprometheus.CounterOpts{
+			Name: serviceReqsBytesTotalName,
+			Help: "The total size of requests in bytes received by a service, partitioned by status code, protocol, and method.",
+		}, []string{"code", "method", "protocol", "service"})
+		serviceRespsBytesTotal := newCounterFrom(stdprometheus.CounterOpts{
+			Name: serviceRespsBytesTotalName,
+			Help: "The total size of responses in bytes returned by a service, partitioned by status code, protocol, and method.",
+		}, []string{"code", "method", "protocol", "service"})
 
-		promState.describers = append(promState.describers, []func(chan<- *stdprometheus.Desc){
-			serviceReqs.cv.Describe,
-			serviceReqsTLS.cv.Describe,
-			serviceReqDurations.hv.Describe,
-			serviceOpenConns.gv.Describe,
-			serviceRetries.cv.Describe,
-			serviceServerUp.gv.Describe,
-		}...)
+		promState.vectors = append(promState.vectors,
+			serviceReqs.cv,
+			serviceReqsTLS.cv,
+			serviceReqDurations.hv,
+			serviceRetries.cv,
+			serviceServerUp.gv,
+			serviceReqsBytesTotal.cv,
+			serviceRespsBytesTotal.cv,
+		)
 
 		reg.serviceReqsCounter = serviceReqs
 		reg.serviceReqsTLSCounter = serviceReqsTLS
 		reg.serviceReqDurationHistogram, _ = NewHistogramWithScale(serviceReqDurations, time.Second)
-		reg.serviceOpenConnsGauge = serviceOpenConns
 		reg.serviceRetriesCounter = serviceRetries
 		reg.serviceServerUpGauge = serviceServerUp
+		reg.serviceReqsBytesCounter = serviceReqsBytesTotal
+		reg.serviceRespsBytesCounter = serviceRespsBytesTotal
 	}
 
 	return reg
@@ -271,15 +278,15 @@ func registerPromState(ctx context.Context) bool {
 		return true
 	}
 
-	logger := log.FromContext(ctx)
+	logger := log.Ctx(ctx)
 
 	var arErr stdprometheus.AlreadyRegisteredError
 	if errors.As(err, &arErr) {
-		logger.Debug("Prometheus collector already registered.")
+		logger.Debug().Msg("Prometheus collector already registered.")
 		return true
 	}
 
-	logger.Errorf("Unable to register Traefik to Prometheus: %v", err)
+	logger.Error().Err(err).Msg("Unable to register Traefik to Prometheus")
 	return false
 }
 
@@ -287,64 +294,92 @@ func registerPromState(ctx context.Context) bool {
 // It then converts the configuration to the optimized package internal format
 // and sets it to the promState.
 func OnConfigurationUpdate(conf dynamic.Configuration, entryPoints []string) {
-	dynamicConfig := newDynamicConfig()
+	dynCfg := newDynamicConfig()
 
 	for _, value := range entryPoints {
-		dynamicConfig.entryPoints[value] = true
+		dynCfg.entryPoints[value] = true
+	}
+
+	if conf.HTTP == nil {
+		promState.SetDynamicConfig(dynCfg)
+		return
 	}
 
 	for name := range conf.HTTP.Routers {
-		dynamicConfig.routers[name] = true
+		dynCfg.routers[name] = true
 	}
 
 	for serviceName, service := range conf.HTTP.Services {
-		dynamicConfig.services[serviceName] = make(map[string]bool)
+		dynCfg.services[serviceName] = make(map[string]bool)
 		if service.LoadBalancer != nil {
 			for _, server := range service.LoadBalancer.Servers {
-				dynamicConfig.services[serviceName][server.URL] = true
+				dynCfg.services[serviceName][server.URL] = true
 			}
 		}
 	}
 
-	promState.SetDynamicConfig(dynamicConfig)
+	promState.SetDynamicConfig(dynCfg)
 }
 
 func newPrometheusState() *prometheusState {
 	return &prometheusState{
-		collectors:    make(chan *collector),
 		dynamicConfig: newDynamicConfig(),
-		state:         make(map[string]*collector),
+		deletedURLs:   make(map[string][]string),
 	}
 }
 
-type prometheusState struct {
-	collectors chan *collector
-	describers []func(ch chan<- *stdprometheus.Desc)
+type vector interface {
+	stdprometheus.Collector
+	DeletePartialMatch(labels stdprometheus.Labels) int
+}
 
-	mtx           sync.Mutex
-	dynamicConfig *dynamicConfig
-	state         map[string]*collector
+type prometheusState struct {
+	vectors []vector
+
+	mtx             sync.Mutex
+	dynamicConfig   *dynamicConfig
+	deletedEP       []string
+	deletedRouters  []string
+	deletedServices []string
+	deletedURLs     map[string][]string
 }
 
 func (ps *prometheusState) SetDynamicConfig(dynamicConfig *dynamicConfig) {
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
-	ps.dynamicConfig = dynamicConfig
-}
 
-func (ps *prometheusState) ListenValueUpdates() {
-	for collector := range ps.collectors {
-		ps.mtx.Lock()
-		ps.state[collector.id] = collector
-		ps.mtx.Unlock()
+	for ep := range ps.dynamicConfig.entryPoints {
+		if _, ok := dynamicConfig.entryPoints[ep]; !ok {
+			ps.deletedEP = append(ps.deletedEP, ep)
+		}
 	}
+
+	for router := range ps.dynamicConfig.routers {
+		if _, ok := dynamicConfig.routers[router]; !ok {
+			ps.deletedRouters = append(ps.deletedRouters, router)
+		}
+	}
+
+	for service, serV := range ps.dynamicConfig.services {
+		actualService, ok := dynamicConfig.services[service]
+		if !ok {
+			ps.deletedServices = append(ps.deletedServices, service)
+		}
+		for url := range serV {
+			if _, ok := actualService[url]; !ok {
+				ps.deletedURLs[service] = append(ps.deletedURLs[service], url)
+			}
+		}
+	}
+
+	ps.dynamicConfig = dynamicConfig
 }
 
 // Describe implements prometheus.Collector and simply calls
 // the registered describer functions.
 func (ps *prometheusState) Describe(ch chan<- *stdprometheus.Desc) {
-	for _, desc := range ps.describers {
-		desc(ch)
+	for _, v := range ps.vectors {
+		v.Describe(ch)
 	}
 }
 
@@ -354,49 +389,54 @@ func (ps *prometheusState) Describe(ch chan<- *stdprometheus.Desc) {
 // The removal happens only after their Collect method was called to ensure that
 // also those metrics will be exported on the current scrape.
 func (ps *prometheusState) Collect(ch chan<- stdprometheus.Metric) {
+	for _, v := range ps.vectors {
+		v.Collect(ch)
+	}
+
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
 
-	var outdatedKeys []string
-	for key, cs := range ps.state {
-		cs.collector.Collect(ch)
-
-		if ps.isOutdated(cs) {
-			outdatedKeys = append(outdatedKeys, key)
+	for _, ep := range ps.deletedEP {
+		if !ps.dynamicConfig.hasEntryPoint(ep) {
+			ps.DeletePartialMatch(map[string]string{"entrypoint": ep})
 		}
 	}
 
-	for _, key := range outdatedKeys {
-		ps.state[key].delete()
-		delete(ps.state, key)
+	for _, router := range ps.deletedRouters {
+		if !ps.dynamicConfig.hasRouter(router) {
+			ps.DeletePartialMatch(map[string]string{"router": router})
+		}
 	}
+
+	for _, service := range ps.deletedServices {
+		if !ps.dynamicConfig.hasService(service) {
+			ps.DeletePartialMatch(map[string]string{"service": service})
+		}
+	}
+
+	for service, urls := range ps.deletedURLs {
+		for _, url := range urls {
+			if !ps.dynamicConfig.hasServerURL(service, url) {
+				ps.DeletePartialMatch(map[string]string{"service": service, "url": url})
+			}
+		}
+	}
+
+	ps.deletedEP = nil
+	ps.deletedRouters = nil
+	ps.deletedServices = nil
+	ps.deletedURLs = make(map[string][]string)
 }
 
-// isOutdated checks whether the passed collector has labels that mark
-// it as belonging to an outdated configuration of Traefik.
-func (ps *prometheusState) isOutdated(collector *collector) bool {
-	labels := collector.labels
-
-	if entrypointName, ok := labels["entrypoint"]; ok && !ps.dynamicConfig.hasEntryPoint(entrypointName) {
-		return true
+// DeletePartialMatch deletes all metrics where the variable labels contain all of those passed in as labels.
+// The order of the labels does not matter.
+// It returns the number of metrics deleted.
+func (ps *prometheusState) DeletePartialMatch(labels stdprometheus.Labels) int {
+	var count int
+	for _, elem := range ps.vectors {
+		count += elem.DeletePartialMatch(labels)
 	}
-
-	if routerName, ok := labels["router"]; ok {
-		if !ps.dynamicConfig.hasRouter(routerName) {
-			return true
-		}
-	}
-
-	if serviceName, ok := labels["service"]; ok {
-		if !ps.dynamicConfig.hasService(serviceName) {
-			return true
-		}
-		if url, ok := labels["url"]; ok && !ps.dynamicConfig.hasServerURL(serviceName, url) {
-			return true
-		}
-	}
-
-	return false
+	return count
 }
 
 func newDynamicConfig() *dynamicConfig {
@@ -440,42 +480,63 @@ func (d *dynamicConfig) hasServerURL(serviceName, serverURL string) bool {
 	return false
 }
 
-func newCollector(metricName string, labels stdprometheus.Labels, c stdprometheus.Collector, deleteFn func()) *collector {
-	return &collector{
-		id:        buildMetricID(metricName, labels),
-		labels:    labels,
-		collector: c,
-		delete:    deleteFn,
+func newCounterWithHeadersFrom(opts stdprometheus.CounterOpts, headers map[string]string, labelNames []string) *counterWithHeaders {
+	var headerLabels []string
+	for k := range headers {
+		headerLabels = append(headerLabels, k)
+	}
+
+	cv := stdprometheus.NewCounterVec(opts, append(labelNames, headerLabels...))
+	c := &counterWithHeaders{
+		name:    opts.Name,
+		headers: headers,
+		cv:      cv,
+	}
+	if len(labelNames) == 0 && len(headerLabels) == 0 {
+		c.collector = cv.WithLabelValues()
+		c.Add(0)
+	}
+	return c
+}
+
+type counterWithHeaders struct {
+	name             string
+	cv               *stdprometheus.CounterVec
+	labelNamesValues labelNamesValues
+	headers          map[string]string
+	collector        stdprometheus.Counter
+}
+
+func (c *counterWithHeaders) With(headers http.Header, labelValues ...string) CounterWithHeaders {
+	for headerLabel, headerKey := range c.headers {
+		labelValues = append(labelValues, headerLabel, headers.Get(headerKey))
+	}
+	lnv := c.labelNamesValues.With(labelValues...)
+	return &counterWithHeaders{
+		name:             c.name,
+		headers:          c.headers,
+		cv:               c.cv,
+		labelNamesValues: lnv,
+		collector:        c.cv.With(lnv.ToLabels()),
 	}
 }
 
-// collector wraps a Collector object from the Prometheus client library.
-// It adds information on how many generations this metric should be present
-// in the /metrics output, relative to the time it was last tracked.
-type collector struct {
-	id        string
-	labels    stdprometheus.Labels
-	collector stdprometheus.Collector
-	delete    func()
+func (c *counterWithHeaders) Add(delta float64) {
+	c.collector.Add(delta)
 }
 
-func buildMetricID(metricName string, labels stdprometheus.Labels) string {
-	var labelNamesValues []string
-	for name, value := range labels {
-		labelNamesValues = append(labelNamesValues, name, value)
-	}
-	sort.Strings(labelNamesValues)
-	return metricName + ":" + strings.Join(labelNamesValues, "|")
+func (c *counterWithHeaders) Describe(ch chan<- *stdprometheus.Desc) {
+	c.cv.Describe(ch)
 }
 
-func newCounterFrom(collectors chan<- *collector, opts stdprometheus.CounterOpts, labelNames []string) *counter {
+func newCounterFrom(opts stdprometheus.CounterOpts, labelNames []string) *counter {
 	cv := stdprometheus.NewCounterVec(opts, labelNames)
 	c := &counter{
-		name:       opts.Name,
-		cv:         cv,
-		collectors: collectors,
+		name: opts.Name,
+		cv:   cv,
 	}
 	if len(labelNames) == 0 {
+		c.collector = cv.WithLabelValues()
 		c.Add(0)
 	}
 	return c
@@ -485,39 +546,36 @@ type counter struct {
 	name             string
 	cv               *stdprometheus.CounterVec
 	labelNamesValues labelNamesValues
-	collectors       chan<- *collector
+	collector        stdprometheus.Counter
 }
 
 func (c *counter) With(labelValues ...string) metrics.Counter {
+	lnv := c.labelNamesValues.With(labelValues...)
 	return &counter{
 		name:             c.name,
 		cv:               c.cv,
-		labelNamesValues: c.labelNamesValues.With(labelValues...),
-		collectors:       c.collectors,
+		labelNamesValues: lnv,
+		collector:        c.cv.With(lnv.ToLabels()),
 	}
 }
 
 func (c *counter) Add(delta float64) {
-	labels := c.labelNamesValues.ToLabels()
-	collector := c.cv.With(labels)
-	collector.Add(delta)
-	c.collectors <- newCollector(c.name, labels, collector, func() {
-		c.cv.Delete(labels)
-	})
+	c.collector.Add(delta)
 }
 
 func (c *counter) Describe(ch chan<- *stdprometheus.Desc) {
 	c.cv.Describe(ch)
 }
 
-func newGaugeFrom(collectors chan<- *collector, opts stdprometheus.GaugeOpts, labelNames []string) *gauge {
+func newGaugeFrom(opts stdprometheus.GaugeOpts, labelNames []string) *gauge {
 	gv := stdprometheus.NewGaugeVec(opts, labelNames)
 	g := &gauge{
-		name:       opts.Name,
-		gv:         gv,
-		collectors: collectors,
+		name: opts.Name,
+		gv:   gv,
 	}
+
 	if len(labelNames) == 0 {
+		g.collector = gv.WithLabelValues()
 		g.Set(0)
 	}
 	return g
@@ -527,46 +585,36 @@ type gauge struct {
 	name             string
 	gv               *stdprometheus.GaugeVec
 	labelNamesValues labelNamesValues
-	collectors       chan<- *collector
+	collector        stdprometheus.Gauge
 }
 
 func (g *gauge) With(labelValues ...string) metrics.Gauge {
+	lnv := g.labelNamesValues.With(labelValues...)
 	return &gauge{
 		name:             g.name,
 		gv:               g.gv,
-		labelNamesValues: g.labelNamesValues.With(labelValues...),
-		collectors:       g.collectors,
+		labelNamesValues: lnv,
+		collector:        g.gv.With(lnv.ToLabels()),
 	}
 }
 
 func (g *gauge) Add(delta float64) {
-	labels := g.labelNamesValues.ToLabels()
-	collector := g.gv.With(labels)
-	collector.Add(delta)
-	g.collectors <- newCollector(g.name, labels, collector, func() {
-		g.gv.Delete(labels)
-	})
+	g.collector.Add(delta)
 }
 
 func (g *gauge) Set(value float64) {
-	labels := g.labelNamesValues.ToLabels()
-	collector := g.gv.With(labels)
-	collector.Set(value)
-	g.collectors <- newCollector(g.name, labels, collector, func() {
-		g.gv.Delete(labels)
-	})
+	g.collector.Set(value)
 }
 
 func (g *gauge) Describe(ch chan<- *stdprometheus.Desc) {
 	g.gv.Describe(ch)
 }
 
-func newHistogramFrom(collectors chan<- *collector, opts stdprometheus.HistogramOpts, labelNames []string) *histogram {
+func newHistogramFrom(opts stdprometheus.HistogramOpts, labelNames []string) *histogram {
 	hv := stdprometheus.NewHistogramVec(opts, labelNames)
 	return &histogram{
-		name:       opts.Name,
-		hv:         hv,
-		collectors: collectors,
+		name: opts.Name,
+		hv:   hv,
 	}
 }
 
@@ -574,28 +622,21 @@ type histogram struct {
 	name             string
 	hv               *stdprometheus.HistogramVec
 	labelNamesValues labelNamesValues
-	collectors       chan<- *collector
+	collector        stdprometheus.Observer
 }
 
 func (h *histogram) With(labelValues ...string) metrics.Histogram {
+	lnv := h.labelNamesValues.With(labelValues...)
 	return &histogram{
 		name:             h.name,
 		hv:               h.hv,
-		labelNamesValues: h.labelNamesValues.With(labelValues...),
-		collectors:       h.collectors,
+		labelNamesValues: lnv,
+		collector:        h.hv.With(lnv.ToLabels()),
 	}
 }
 
 func (h *histogram) Observe(value float64) {
-	labels := h.labelNamesValues.ToLabels()
-	observer := h.hv.With(labels)
-	observer.Observe(value)
-	// Do a type assertion to be sure that prometheus will be able to call the Collect method.
-	if collector, ok := observer.(stdprometheus.Histogram); ok {
-		h.collectors <- newCollector(h.name, labels, collector, func() {
-			h.hv.Delete(labels)
-		})
-	}
+	h.collector.Observe(value)
 }
 
 func (h *histogram) Describe(ch chan<- *stdprometheus.Desc) {
@@ -612,13 +653,18 @@ func (lvs labelNamesValues) With(labelValues ...string) labelNamesValues {
 	if len(labelValues)%2 != 0 {
 		labelValues = append(labelValues, "unknown")
 	}
-	return append(lvs, labelValues...)
+
+	labels := make([]string, len(lvs)+len(labelValues))
+	n := copy(labels, lvs)
+	copy(labels[n:], labelValues)
+
+	return labels
 }
 
 // ToLabels is a convenience method to convert a labelNamesValues
 // to the native prometheus.Labels.
 func (lvs labelNamesValues) ToLabels() stdprometheus.Labels {
-	labels := stdprometheus.Labels{}
+	labels := make(map[string]string, len(lvs)/2)
 	for i := 0; i < len(lvs); i += 2 {
 		labels[lvs[i]] = lvs[i+1]
 	}

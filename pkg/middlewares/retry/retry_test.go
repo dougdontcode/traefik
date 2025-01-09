@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
+	"net/textproto"
 	"strings"
 	"testing"
 	"time"
@@ -15,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ptypes "github.com/traefik/paerser/types"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
-	"github.com/traefik/traefik/v2/pkg/testhelpers"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/testhelpers"
 )
 
 func TestRetry(t *testing.T) {
@@ -100,15 +101,14 @@ func TestRetry(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
-			retryAttemps := 0
+			retryAttempts := 0
 			next := http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-				retryAttemps++
+				retryAttempts++
 
-				if retryAttemps > test.amountFaultyEndpoints {
+				if retryAttempts > test.amountFaultyEndpoints {
 					// calls WroteHeaders on httptrace.
 					_ = r.Write(io.Discard)
 
@@ -202,7 +202,7 @@ func TestMultipleRetriesShouldNotLooseHeaders(t *testing.T) {
 	}
 
 	// Validate that we don't have headers from previous attempts
-	for i := 0; i < attempt; i++ {
+	for i := range attempt {
 		headerName := fmt.Sprintf("X-Foo-Test-%d", i)
 		headerValue = responseRecorder.Header().Get("headerName")
 		if headerValue != "" {
@@ -222,7 +222,7 @@ func (l *countingRetryListener) Retried(req *http.Request, attempt int) {
 
 func TestRetryWithFlush(t *testing.T) {
 	next := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		rw.WriteHeader(200)
+		rw.WriteHeader(http.StatusOK)
 		_, err := rw.Write([]byte("FULL "))
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -271,15 +271,14 @@ func TestRetryWebsocket(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
-			retryAttemps := 0
+			retryAttempts := 0
 			next := http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-				retryAttemps++
+				retryAttempts++
 
-				if retryAttemps > test.amountFaultyEndpoints {
+				if retryAttempts > test.amountFaultyEndpoints {
 					upgrader := websocket.Upgrader{}
 					_, err := upgrader.Upgrade(rw, r, nil)
 					if err != nil {
@@ -308,4 +307,83 @@ func TestRetryWebsocket(t *testing.T) {
 			assert.Equal(t, test.expectedRetryAttempts, retryListener.timesCalled)
 		})
 	}
+}
+
+// This test is an adapted version of net/http/httputil.Test1xxResponses test.
+func Test1xxResponses(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Add("Link", "</style.css>; rel=preload; as=style")
+		h.Add("Link", "</script.js>; rel=preload; as=script")
+		w.WriteHeader(http.StatusEarlyHints)
+
+		h.Add("Link", "</foo.js>; rel=preload; as=script")
+		w.WriteHeader(http.StatusProcessing)
+
+		_, _ = w.Write([]byte("Hello"))
+	})
+
+	retryListener := &countingRetryListener{}
+	retry, err := New(context.Background(), next, dynamic.Retry{Attempts: 1}, retryListener, "traefikTest")
+	require.NoError(t, err)
+
+	server := httptest.NewServer(retry)
+	t.Cleanup(server.Close)
+	frontendClient := server.Client()
+
+	checkLinkHeaders := func(t *testing.T, expected, got []string) {
+		t.Helper()
+
+		if len(expected) != len(got) {
+			t.Errorf("Expected %d link headers; got %d", len(expected), len(got))
+		}
+
+		for i := range expected {
+			if i >= len(got) {
+				t.Errorf("Expected %q link header; got nothing", expected[i])
+
+				continue
+			}
+
+			if expected[i] != got[i] {
+				t.Errorf("Expected %q link header; got %q", expected[i], got[i])
+			}
+		}
+	}
+
+	var respCounter uint8
+	trace := &httptrace.ClientTrace{
+		Got1xxResponse: func(code int, header textproto.MIMEHeader) error {
+			switch code {
+			case http.StatusEarlyHints:
+				checkLinkHeaders(t, []string{"</style.css>; rel=preload; as=style", "</script.js>; rel=preload; as=script"}, header["Link"])
+			case http.StatusProcessing:
+				checkLinkHeaders(t, []string{"</style.css>; rel=preload; as=style", "</script.js>; rel=preload; as=script", "</foo.js>; rel=preload; as=script"}, header["Link"])
+			default:
+				t.Error("Unexpected 1xx response")
+			}
+
+			respCounter++
+
+			return nil
+		},
+	}
+	req, _ := http.NewRequestWithContext(httptrace.WithClientTrace(context.Background(), trace), http.MethodGet, server.URL, nil)
+
+	res, err := frontendClient.Do(req)
+	assert.NoError(t, err)
+
+	defer res.Body.Close()
+
+	if respCounter != 2 {
+		t.Errorf("Expected 2 1xx responses; got %d", respCounter)
+	}
+	checkLinkHeaders(t, []string{"</style.css>; rel=preload; as=style", "</script.js>; rel=preload; as=script", "</foo.js>; rel=preload; as=script"}, res.Header["Link"])
+
+	body, _ := io.ReadAll(res.Body)
+	if string(body) != "Hello" {
+		t.Errorf("Read body %q; want Hello", body)
+	}
+
+	assert.Equal(t, 0, retryListener.timesCalled)
 }

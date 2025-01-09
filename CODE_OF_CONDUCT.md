@@ -2,7 +2,7 @@
 
 ## Our Pledge
 
-In the interest of fostering an open and welcoming environment, we as contributors and maintainers pledge to making participation in our project and our community a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, gender identity and expression, level of experience,nationality, personal appearance, race, religion, or sexual identity and orientation.
+In the interest of fostering an open and welcoming environment, we as contributors and maintainers pledge to making participation in our project and our community a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, gender identity and expression, level of experience, nationality, personal appearance, race, religion, or sexual identity and orientation.
 
 ## Our Standards
 
@@ -30,18 +30,34 @@ Project maintainers have the right and responsibility to remove, edit, or reject
 
 ## Scope
 
-This Code of Conduct applies both within project spaces and in public spaces when an individual is representing the project or its community. 
-Examples of representing a project or community include using an official project e-mail address, posting via an official social media account, or acting as an appointed representative at an online or offline event. 
+This Code of Conduct applies both within project spaces and in public spaces when an individual is representing the project or our community.
+
+Examples of representing a project or community include using an official project e-mail address, posting via an official social media account, or acting as an appointed representative at an online or offline event.
 Representation of a project may be further defined and clarified by project maintainers.
 
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project team at contact@traefik.io
-All complaints will be reviewed and investigated and will result in a response that is deemed necessary and appropriate to the circumstances. 
-The project team is obligated to maintain confidentiality with regard to the reporter of an incident. 
+
+All complaints will be reviewed and investigated and will result in a response that is deemed necessary and appropriate to the circumstances.
+
+The project team is obligated to maintain confidentiality with regard to the reporter of an incident.
+
 Further details of specific enforcement policies may be posted separately.
 
 Project maintainers who do not follow or enforce the Code of Conduct in good faith may face temporary or permanent repercussions as determined by other members of the project's leadership.
+
+When an inappropriate behavior is reported, maintainers will discuss on the Maintainer's Discord before marking the message as "abuse". 
+This conversation beforehand avoids one-sided decisions.
+
+The first message will be edited and marked as abuse.
+The second edited message and marked as abuse results in a 7-day ban.
+The third edited message and marked as abuse results in a permanent ban.
+
+The content of edited messages is:
+`Dear user, we want traefik to provide a welcoming and respectful environment. Your [comment/issue/PR] has been reported and marked as abuse according to our [Code of Conduct](./CODE_OF_CONDUCT.md). Thank you.`
+
+The [report must be resolved](https://docs.github.com/en/communities/moderating-comments-and-conversations/managing-reported-content-in-your-organizations-repository#resolving-a-report) accordingly.
 
 ## Attribution
 

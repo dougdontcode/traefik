@@ -1,3 +1,8 @@
+---
+title: "Traefik Proxy HTTP Middleware Overview"
+description: "Read the official Traefik Proxy documentation for an overview of the available HTTP middleware."
+---
+
 # HTTP Middlewares
 
 Controlling connections
@@ -7,7 +12,7 @@ Controlling connections
 
 ## Configuration Example
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # As a Docker Label
 whoami:
   #  A container that exposes an API to show its IP address
@@ -19,23 +24,10 @@ whoami:
     - "traefik.http.routers.router1.middlewares=foo-add-prefix@docker"
 ```
 
-```yaml tab="Kubernetes IngressRoute"
+```yaml tab="IngressRoute"
 # As a Kubernetes Traefik IngressRoute
-apiVersion: apiextensions.k8s.io/v1beta1
-kind: CustomResourceDefinition
-metadata:
-  name: middlewares.traefik.containo.us
-spec:
-  group: traefik.containo.us
-  version: v1alpha1
-  names:
-    kind: Middleware
-    plural: middlewares
-    singular: middleware
-  scope: Namespaced
-
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: stripprefix
@@ -45,7 +37,7 @@ spec:
       - /stripit
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: ingressroute
@@ -64,27 +56,11 @@ spec:
 - "traefik.http.routers.router1.middlewares=foo-add-prefix@consulcatalog"
 ```
 
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.foo-add-prefix.addprefix.prefix": "/foo",
-  "traefik.http.routers.router1.middlewares": "foo-add-prefix@marathon"
-}
-```
-
-```yaml tab="Rancher"
-# As a Rancher Label
-labels:
-  # Create a middleware named `foo-add-prefix`
-  - "traefik.http.middlewares.foo-add-prefix.addprefix.prefix=/foo"
-  # Apply the middleware named `foo-add-prefix` to the router named `router1`
-  - "traefik.http.routers.router1.middlewares=foo-add-prefix@rancher"
-```
-
 ```toml tab="File (TOML)"
 # As TOML Configuration File
 [http.routers]
   [http.routers.router1]
-    service = "myService"
+    service = "service1"
     middlewares = ["foo-add-prefix"]
     rule = "Host(`example.com`)"
 
@@ -105,7 +81,7 @@ labels:
 http:
   routers:
     router1:
-      service: myService
+      service: service1
       middlewares:
         - "foo-add-prefix"
       rule: "Host(`example.com`)"
@@ -137,7 +113,7 @@ http:
 | [Errors](errorpages.md)                   | Defines custom error pages                        | Request Lifecycle           |
 | [ForwardAuth](forwardauth.md)             | Delegates Authentication                          | Security, Authentication    |
 | [Headers](headers.md)                     | Adds / Updates headers                            | Security                    |
-| [IPWhiteList](ipwhitelist.md)             | Limits the allowed client IPs                     | Security, Request lifecycle |
+| [IPAllowList](ipallowlist.md)             | Limits the allowed client IPs                     | Security, Request lifecycle |
 | [InFlightReq](inflightreq.md)             | Limits the number of simultaneous connections     | Security, Request lifecycle |
 | [PassTLSClientCert](passtlsclientcert.md) | Adds Client Certificates in a Header              | Security                    |
 | [RateLimit](ratelimit.md)                 | Limits the call frequency                         | Security, Request lifecycle |
@@ -148,3 +124,9 @@ http:
 | [Retry](retry.md)                         | Automatically retries in case of error            | Request lifecycle           |
 | [StripPrefix](stripprefix.md)             | Changes the path of the request                   | Path Modifier               |
 | [StripPrefixRegex](stripprefixregex.md)   | Changes the path of the request                   | Path Modifier               |
+
+## Community Middlewares
+
+Please take a look at the community-contributed plugins in the [plugin catalog](https://plugins.traefik.io/plugins).
+
+{!traefik-for-business-applications.md!}

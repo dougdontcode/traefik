@@ -18,7 +18,7 @@ data:
   tls.ca: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0=
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TLSOption
 metadata:
   name: default
@@ -35,10 +35,9 @@ spec:
       - secret-ca-default1
       - secret-ca-default2
     clientAuthType: VerifyClientCertIfGiven
-  preferServerCipherSuites: true
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: test.route

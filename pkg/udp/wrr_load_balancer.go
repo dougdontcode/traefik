@@ -1,10 +1,10 @@
 package udp
 
 import (
-	"fmt"
+	"errors"
 	"sync"
 
-	"github.com/traefik/traefik/v2/pkg/log"
+	"github.com/rs/zerolog/log"
 )
 
 type server struct {
@@ -15,7 +15,7 @@ type server struct {
 // WRRLoadBalancer is a naive RoundRobin load balancer for UDP services.
 type WRRLoadBalancer struct {
 	servers       []server
-	lock          sync.RWMutex
+	lock          sync.Mutex
 	currentWeight int
 	index         int
 }
@@ -29,16 +29,16 @@ func NewWRRLoadBalancer() *WRRLoadBalancer {
 
 // ServeUDP forwards the connection to the right service.
 func (b *WRRLoadBalancer) ServeUDP(conn *Conn) {
-	if len(b.servers) == 0 {
-		log.WithoutContext().Error("no available server")
+	b.lock.Lock()
+	next, err := b.next()
+	b.lock.Unlock()
+
+	if err != nil {
+		log.Error().Err(err).Msg("Error during load balancing")
+		conn.Close()
 		return
 	}
 
-	next, err := b.next()
-	if err != nil {
-		log.WithoutContext().Errorf("Error during load balancing: %v", err)
-		conn.Close()
-	}
 	next.ServeUDP(conn)
 }
 
@@ -50,6 +50,9 @@ func (b *WRRLoadBalancer) AddServer(serverHandler Handler) {
 
 // AddWeightedServer appends a handler to the existing list with a weight.
 func (b *WRRLoadBalancer) AddWeightedServer(serverHandler Handler, weight *int) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	w := 1
 	if weight != nil {
 		w = *weight
@@ -58,13 +61,13 @@ func (b *WRRLoadBalancer) AddWeightedServer(serverHandler Handler, weight *int) 
 }
 
 func (b *WRRLoadBalancer) maxWeight() int {
-	max := -1
+	maximum := -1
 	for _, s := range b.servers {
-		if s.weight > max {
-			max = s.weight
+		if s.weight > maximum {
+			maximum = s.weight
 		}
 	}
-	return max
+	return maximum
 }
 
 func (b *WRRLoadBalancer) weightGcd() int {
@@ -87,31 +90,29 @@ func gcd(a, b int) int {
 }
 
 func (b *WRRLoadBalancer) next() (Handler, error) {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
 	if len(b.servers) == 0 {
-		return nil, fmt.Errorf("no servers in the pool")
+		return nil, errors.New("no servers in the pool")
 	}
 
 	// The algorithm below may look messy,
 	// but is actually very simple it calculates the GCD  and subtracts it on every iteration,
 	// what interleaves servers and allows us not to build an iterator every time we readjust weights.
 
+	// Maximum weight across all enabled servers
+	maximum := b.maxWeight()
+	if maximum == 0 {
+		return nil, errors.New("all servers have 0 weight")
+	}
+
 	// GCD across all enabled servers
 	gcd := b.weightGcd()
-	// Maximum weight across all enabled servers
-	max := b.maxWeight()
 
 	for {
 		b.index = (b.index + 1) % len(b.servers)
 		if b.index == 0 {
 			b.currentWeight -= gcd
 			if b.currentWeight <= 0 {
-				b.currentWeight = max
-				if b.currentWeight == 0 {
-					return nil, fmt.Errorf("all servers have 0 weight")
-				}
+				b.currentWeight = maximum
 			}
 		}
 		srv := b.servers[b.index]

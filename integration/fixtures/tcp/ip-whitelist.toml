@@ -4,6 +4,7 @@
 
 [log]
   level = "DEBUG"
+  noColor = true
 
 [entryPoints]
   [entryPoints.tcp]
@@ -24,32 +25,28 @@
       rule = "HostSNI(`whoami-a.test`)"
       service = "whoami-a"
       middlewares = ["blocking-ipwhitelist"]
-      [tcp.routers.to-whoami-a.tls]
-        passthrough = true
+    [tcp.routers.to-whoami-a.tls]
+      passthrough = true
 
     [tcp.routers.to-whoami-b]
       entryPoints = ["tcp"]
       rule = "HostSNI(`whoami-b.test`)"
       service = "whoami-b"
       middlewares = ["allowing-ipwhitelist"]
-      [tcp.routers.to-whoami-b.tls]
-        passthrough = true
+    [tcp.routers.to-whoami-b.tls]
+      passthrough = true
 
   [tcp.services]
     [tcp.services.whoami-a.loadBalancer]
       [[tcp.services.whoami-a.loadBalancer.servers]]
-        address = "localhost:8081"
+        address = "{{ .WhoamiA }}"
 
     [tcp.services.whoami-b.loadBalancer]
       [[tcp.services.whoami-b.loadBalancer.servers]]
-        address = "localhost:8082"
+        address = "{{ .WhoamiB }}"
 
-  [tcp.middlewares]
-    [tcp.middlewares.allowing-ipwhitelist.ipWhiteList]
-      sourceRange = ["127.0.0.1/32"]
-    [tcp.middlewares.blocking-ipwhitelist.ipWhiteList]
-      sourceRange = ["127.127.127.127/32"]
-
-[[tls.certificates]]
-  certFile = "fixtures/tcp/whoami-c.crt"
-  keyFile = "fixtures/tcp/whoami-c.key"
+[tcp.middlewares]
+  [tcp.middlewares.allowing-ipwhitelist.ipWhiteList]
+    sourceRange = ["127.0.0.1/32"]
+  [tcp.middlewares.blocking-ipwhitelist.ipWhiteList]
+    sourceRange = ["127.127.127.127/32"]

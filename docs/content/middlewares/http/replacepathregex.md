@@ -1,3 +1,8 @@
+---
+title: "Traefik ReplacePathRegex Documentation"
+description: "In Traefik Proxy's HTTP middleware, ReplacePathRegex updates paths before forwarding requests, using a regex. Read the technical documentation."
+---
+
 # ReplacePathRegex
 
 Updating the Path Before Forwarding the Request (Using a Regex)
@@ -11,7 +16,7 @@ The ReplaceRegex replaces the path of a URL using regex matching and replacement
 
 ## Configuration Examples
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Replace path with regex
 labels:
   - "traefik.http.middlewares.test-replacepathregex.replacepathregex.regex=^/foo/(.*)"
@@ -20,7 +25,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Replace path with regex
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-replacepathregex
@@ -34,20 +39,6 @@ spec:
 # Replace path with regex
 - "traefik.http.middlewares.test-replacepathregex.replacepathregex.regex=^/foo/(.*)"
 - "traefik.http.middlewares.test-replacepathregex.replacepathregex.replacement=/bar/$1"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-replacepathregex.replacepathregex.regex": "^/foo/(.*)",
-  "traefik.http.middlewares.test-replacepathregex.replacepathregex.replacement": "/bar/$1"
-}
-```
-
-```yaml tab="Rancher"
-# Replace path with regex
-labels:
-  - "traefik.http.middlewares.test-replacepathregex.replacepathregex.regex=^/foo/(.*)"
-  - "traefik.http.middlewares.test-replacepathregex.replacepathregex.replacement=/bar/$1"
 ```
 
 ```yaml tab="File (YAML)"

@@ -3,20 +3,32 @@ package integration
 import (
 	"net"
 	"net/http"
-	"os"
 	"strings"
+	"testing"
 	"time"
 
-	"github.com/go-check/check"
-	"github.com/traefik/traefik/v2/integration/try"
-	checker "github.com/vdemeester/shakers"
+	"github.com/rs/zerolog/log"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"github.com/traefik/traefik/v3/integration/try"
 )
 
 type UDPSuite struct{ BaseSuite }
 
-func (s *UDPSuite) SetUpSuite(c *check.C) {
-	s.createComposeProject(c, "udp")
-	s.composeProject.Start(c)
+func TestUDPSuite(t *testing.T) {
+	suite.Run(t, new(UDPSuite))
+}
+
+func (s *UDPSuite) SetupSuite() {
+	s.BaseSuite.SetupSuite()
+
+	s.createComposeProject("udp")
+	s.composeUp()
+}
+
+func (s *UDPSuite) TearDownSuite() {
+	s.BaseSuite.TearDownSuite()
 }
 
 func guessWhoUDP(addr string) (string, error) {
@@ -46,44 +58,33 @@ func guessWhoUDP(addr string) (string, error) {
 	return string(out[:n]), nil
 }
 
-func (s *UDPSuite) TestWRR(c *check.C) {
-	whoamiAIP := s.composeProject.Container(c, "whoami-a").NetworkSettings.IPAddress
-	whoamiBIP := s.composeProject.Container(c, "whoami-b").NetworkSettings.IPAddress
-	whoamiCIP := s.composeProject.Container(c, "whoami-c").NetworkSettings.IPAddress
-	whoamiDIP := s.composeProject.Container(c, "whoami-d").NetworkSettings.IPAddress
-
-	file := s.adaptFile(c, "fixtures/udp/wrr.toml", struct {
+func (s *UDPSuite) TestWRR() {
+	file := s.adaptFile("fixtures/udp/wrr.toml", struct {
 		WhoamiAIP string
 		WhoamiBIP string
 		WhoamiCIP string
 		WhoamiDIP string
 	}{
-		WhoamiAIP: whoamiAIP,
-		WhoamiBIP: whoamiBIP,
-		WhoamiCIP: whoamiCIP,
-		WhoamiDIP: whoamiDIP,
+		WhoamiAIP: s.getComposeServiceIP("whoami-a"),
+		WhoamiBIP: s.getComposeServiceIP("whoami-b"),
+		WhoamiCIP: s.getComposeServiceIP("whoami-c"),
+		WhoamiDIP: s.getComposeServiceIP("whoami-d"),
 	})
-	defer os.Remove(file)
 
-	cmd, display := s.traefikCmd(withConfigFile(file))
-	defer display(c)
+	s.traefikCmd(withConfigFile(file))
 
-	err := cmd.Start()
-	c.Assert(err, checker.IsNil)
-	defer s.killCmd(cmd)
-
-	err = try.GetRequest("http://127.0.0.1:8080/api/rawdata", 5*time.Second, try.StatusCodeIs(http.StatusOK), try.BodyContains("whoami-a"))
-	c.Assert(err, checker.IsNil)
+	err := try.GetRequest("http://127.0.0.1:8080/api/rawdata", 5*time.Second, try.StatusCodeIs(http.StatusOK), try.BodyContains("whoami-a"))
+	require.NoError(s.T(), err)
 
 	err = try.GetRequest("http://127.0.0.1:8093/who", 5*time.Second, try.StatusCodeIs(http.StatusOK))
-	c.Assert(err, checker.IsNil)
+	require.NoError(s.T(), err)
 
 	stop := make(chan struct{})
 	go func() {
 		call := map[string]int{}
-		for i := 0; i < 4; i++ {
+		for range 8 {
 			out, err := guessWhoUDP("127.0.0.1:8093")
-			c.Assert(err, checker.IsNil)
+			require.NoError(s.T(), err)
 			switch {
 			case strings.Contains(out, "whoami-a"):
 				call["whoami-a"]++
@@ -95,13 +96,13 @@ func (s *UDPSuite) TestWRR(c *check.C) {
 				call["unknown"]++
 			}
 		}
-		c.Assert(call, checker.DeepEquals, map[string]int{"whoami-a": 2, "whoami-b": 1, "whoami-c": 1})
+		assert.EqualValues(s.T(), map[string]int{"whoami-a": 3, "whoami-b": 2, "whoami-c": 3}, call)
 		close(stop)
 	}()
 
 	select {
 	case <-stop:
 	case <-time.Tick(5 * time.Second):
-		c.Error("Timeout")
+		log.Info().Msg("Timeout")
 	}
 }

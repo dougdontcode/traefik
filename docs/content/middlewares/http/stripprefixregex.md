@@ -1,3 +1,8 @@
+---
+title: "Traefik StripPrefixRegex Documentation"
+description: "In Traefik Proxy's HTTP middleware, StripPrefixRegex removes prefixes from paths before forwarding requests, using regex. Read the technical documentation."
+---
+
 # StripPrefixRegex
 
 Removing Prefixes From the Path Before Forwarding the Request (Using a Regex)
@@ -7,13 +12,13 @@ Remove the matching prefixes from the URL path.
 
 ## Configuration Examples
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 labels:
   - "traefik.http.middlewares.test-stripprefixregex.stripprefixregex.regex=/foo/[a-z0-9]+/[0-9]+/"
 ```
 
 ```yaml tab="Kubernetes"
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-stripprefixregex
@@ -25,17 +30,6 @@ spec:
 
 ```yaml tab="Consul Catalog"
 - "traefik.http.middlewares.test-stripprefixregex.stripprefixregex.regex=/foo/[a-z0-9]+/[0-9]+/"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-stripprefixregex.stripprefixregex.regex": "/foo/[a-z0-9]+/[0-9]+/"
-}
-```
-
-```yaml tab="Rancher"
-labels:
-  - "traefik.http.middlewares.test-stripprefixregex.stripprefixregex.regex=/foo/[a-z0-9]+/[0-9]+/"
 ```
 
 ```yaml tab="File (YAML)"

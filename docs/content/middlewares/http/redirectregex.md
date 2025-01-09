@@ -1,3 +1,8 @@
+---
+title: "Traefik RedirectRegex Documentation"
+description: "In Traefik Proxy's HTTP middleware, RedirectRegex redirecting clients to different locations. Read the technical documentation."
+---
+
 # RedirectRegex
 
 Redirecting the Client to a Different Location
@@ -11,7 +16,7 @@ The RedirectRegex redirects a request using regex matching and replacement.
 
 ## Configuration Examples
 
-```yaml tab="Docker"
+```yaml tab="Docker & Swarm"
 # Redirect with domain replacement
 # Note: all dollar signs need to be doubled for escaping.
 labels:
@@ -21,7 +26,7 @@ labels:
 
 ```yaml tab="Kubernetes"
 # Redirect with domain replacement
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: test-redirectregex
@@ -36,21 +41,6 @@ spec:
 # Note: all dollar signs need to be doubled for escaping.
 - "traefik.http.middlewares.test-redirectregex.redirectregex.regex=^http://localhost/(.*)"
 - "traefik.http.middlewares.test-redirectregex.redirectregex.replacement=http://mydomain/$${1}"
-```
-
-```json tab="Marathon"
-"labels": {
-  "traefik.http.middlewares.test-redirectregex.redirectregex.regex": "^http://localhost/(.*)",
-  "traefik.http.middlewares.test-redirectregex.redirectregex.replacement": "http://mydomain/${1}"
-}
-```
-
-```yaml tab="Rancher"
-# Redirect with domain replacement
-# Note: all dollar signs need to be doubled for escaping.
-labels:
-  - "traefik.http.middlewares.test-redirectregex.redirectregex.regex=^http://localhost/(.*)"
-  - "traefik.http.middlewares.test-redirectregex.redirectregex.replacement=http://mydomain/$${1}"
 ```
 
 ```yaml tab="File (YAML)"
@@ -94,3 +84,5 @@ The `replacement` option defines how to modify the URL to have the new target UR
 !!! warning
 
     Care should be taken when defining replacement expand variables: `$1x` is equivalent to `${1x}`, not `${1}x` (see [Regexp.Expand](https://golang.org/pkg/regexp/#Regexp.Expand)), so use `${1}` syntax.
+
+{!traefik-for-business-applications.md!}

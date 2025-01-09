@@ -1,3 +1,8 @@
+---
+title: "Traefik V2 Migration Documentation"
+description: "Migrate from Traefik Proxy v1 to v2 and update all the necessary configurations to take advantage of all the improvements. Read the technical documentation."
+---
+
 # Migration Guide: From v1 to v2
 
 How to Migrate from Traefik v1 to Traefik v2.
@@ -18,7 +23,7 @@ feature by feature, of how the configuration looked like in v1, and how it now l
     - convert `acme.json` file from v1 to v2 format.
     - migrate the static configuration contained in the file `traefik.toml` to a Traefik v2 file.
 
-## Frontends and Backends Are Dead... <br/>... Long Live Routers, Middlewares, and Services
+## Frontends and Backends Are Dead, Long Live Routers, Middlewares, and Services
 
 During the transition from v1 to v2, a number of internal pieces and components of Traefik were rewritten and reorganized.
 As such, the combination of core notions such as frontends and backends has been replaced with the combination of [routers](../routing/routers/index.md), [services](../routing/services/index.md), and [middlewares](../middlewares/overview.md).
@@ -33,13 +38,13 @@ Then any router can refer to an instance of the wanted middleware.
 
     !!! info "v1"
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     labels:
       - "traefik.frontend.rule=Host:test.localhost;PathPrefix:/test"
       - "traefik.frontend.auth.basic.users=test:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/,test2:$$apr1$$d9hr9HBB$$4HxwgUir3HP4EsggP/QNo0"
     ```
 
-    ```yaml tab="K8s Ingress"
+    ```yaml tab="Ingress"
     apiVersion: networking.k8s.io/v1beta1
     kind: Ingress
     metadata:
@@ -95,17 +100,17 @@ Then any router can refer to an instance of the wanted middleware.
 
     !!! info "v2"
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     labels:
       - "traefik.http.routers.router0.rule=Host(`test.localhost`) && PathPrefix(`/test`)"
       - "traefik.http.routers.router0.middlewares=auth"
       - "traefik.http.middlewares.auth.basicauth.users=test:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/,test2:$$apr1$$d9hr9HBB$$4HxwgUir3HP4EsggP/QNo0"
     ```
 
-    ```yaml tab="K8s IngressRoute"
+    ```yaml tab="IngressRoute"
     # The definitions below require the definitions for the Middleware and IngressRoute kinds.
-    # https://doc.traefik.io/traefik/v2.3/reference/dynamic-configuration/kubernetes-crd/#definitions
-    apiVersion: traefik.containo.us/v1alpha1
+    # https://doc.traefik.io/traefik/reference/dynamic-configuration/kubernetes-crd/#definitions
+    apiVersion: traefik.io/v1alpha1
     kind: Middleware
     metadata:
       name: basicauth
@@ -118,7 +123,7 @@ Then any router can refer to an instance of the wanted middleware.
           - test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0
 
     ---
-    apiVersion: traefik.containo.us/v1alpha1
+    apiVersion: traefik.io/v1alpha1
     kind: IngressRoute
     metadata:
       name: ingressroutebar
@@ -273,10 +278,10 @@ Then, a [router's TLS field](../routing/routers/index.md#tls) can refer to one o
         ]
     ```
 
-    ```yaml tab="K8s IngressRoute"
+    ```yaml tab="IngressRoute"
     # The definitions below require the definitions for the TLSOption and IngressRoute kinds.
-    # https://doc.traefik.io/traefik/v2.3/reference/dynamic-configuration/kubernetes-crd/#definitions
-    apiVersion: traefik.containo.us/v1alpha1
+    # https://doc.traefik.io/traefik/reference/dynamic-configuration/kubernetes-crd/#definitions
+    apiVersion: traefik.io/v1alpha1
     kind: TLSOption
     metadata:
       name: mytlsoption
@@ -292,7 +297,7 @@ Then, a [router's TLS field](../routing/routers/index.md#tls) can refer to one o
 	    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
 
     ---
-    apiVersion: traefik.containo.us/v1alpha1
+    apiVersion: traefik.io/v1alpha1
     kind: IngressRoute
     metadata:
       name: ingressroutebar
@@ -312,7 +317,7 @@ Then, a [router's TLS field](../routing/routers/index.md#tls) can refer to one o
           namespace: default
     ```
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     labels:
       # myTLSOptions must be defined by another provider, in this instance in the File Provider.
       # see the cross provider section
@@ -349,7 +354,7 @@ To apply a redirection:
     ```
 
     ```bash tab="CLI"
-    --entrypoints=Name:web Address::80 Redirect.EntryPoint:websecure
+    --entryPoints=Name:web Address::80 Redirect.EntryPoint:websecure
     --entryPoints='Name:websecure Address::443 TLS'
     ```
 
@@ -389,10 +394,10 @@ To apply a redirection:
     ```bash tab="CLI"
     ## static configuration
 
-    --entrypoints.web.address=:80
-    --entrypoints.web.http.redirections.entrypoint.to=websecure
-    --entrypoints.web.http.redirections.entrypoint.scheme=https
-    --entrypoints.websecure.address=:443
+    --entryPoints.web.address=:80
+    --entryPoints.web.http.redirections.entrypoint.to=websecure
+    --entryPoints.web.http.redirections.entrypoint.scheme=https
+    --entryPoints.websecure.address=:443
     --providers.docker=true
     ```
 
@@ -423,7 +428,7 @@ To apply a redirection:
 
     !!! info "v2"
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     labels:
       traefik.http.routers.app.rule: Host(`example.net`)
       traefik.http.routers.app.entrypoints: web
@@ -437,8 +442,8 @@ To apply a redirection:
       traefik.http.middlewares.https_redirect.redirectscheme.permanent: true
     ```
 
-    ```yaml tab="K8s IngressRoute"
-    apiVersion: traefik.containo.us/v1alpha1
+    ```yaml tab="IngressRoute"
+    apiVersion: traefik.io/v1alpha1
     kind: IngressRoute
     metadata:
       name: http-redirect-ingressroute
@@ -456,7 +461,7 @@ To apply a redirection:
             - name: https-redirect
 
     ---
-    apiVersion: traefik.containo.us/v1alpha1
+    apiVersion: traefik.io/v1alpha1
     kind: IngressRoute
     metadata:
       name: https-ingressroute
@@ -473,7 +478,7 @@ To apply a redirection:
       tls: {}
 
     ---
-    apiVersion: traefik.containo.us/v1alpha1
+    apiVersion: traefik.io/v1alpha1
     kind: Middleware
     metadata:
       name: https-redirect
@@ -537,7 +542,7 @@ To apply a redirection:
 ## Strip and Rewrite Path Prefixes
 
 With the new core notions of v2 (introduced earlier in the section
-["Frontends and Backends Are Dead... Long Live Routers, Middlewares, and Services"](#frontends-and-backends-are-dead-long-live-routers-middlewares-and-services)),
+["Frontends and Backends Are Dead, Long Live Routers, Middlewares, and Services"](#frontends-and-backends-are-dead-long-live-routers-middlewares-and-services)),
 transforming the URL path prefix of incoming requests is configured with [middlewares](../middlewares/overview.md),
 after the routing step with [router rule `PathPrefix`](../routing/routers/index.md#rule).
 
@@ -551,12 +556,12 @@ with the path `/admin` stripped, e.g. to `http://<IP>:<port>/`. In this case, yo
 
     !!! info "v1"
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     labels:
       - "traefik.frontend.rule=Host:example.org;PathPrefixStrip:/admin"
     ```
 
-    ```yaml tab="Kubernetes Ingress"
+    ```yaml tab="Ingress"
     apiVersion: networking.k8s.io/v1beta1
     kind: Ingress
     metadata:
@@ -583,16 +588,16 @@ with the path `/admin` stripped, e.g. to `http://<IP>:<port>/`. In this case, yo
 
     !!! info "v2"
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     labels:
       - "traefik.http.routers.admin.rule=Host(`example.org`) && PathPrefix(`/admin`)"
       - "traefik.http.routers.admin.middlewares=admin-stripprefix"
       - "traefik.http.middlewares.admin-stripprefix.stripprefix.prefixes=/admin"
     ```
 
-    ```yaml tab="Kubernetes IngressRoute"
+    ```yaml tab="IngressRoute"
     ---
-    apiVersion: traefik.containo.us/v1alpha1
+    apiVersion: traefik.io/v1alpha1
     kind: IngressRoute
     metadata:
       name: http-redirect-ingressroute
@@ -609,7 +614,7 @@ with the path `/admin` stripped, e.g. to `http://<IP>:<port>/`. In this case, yo
           middlewares:
             - name: admin-stripprefix
     ---
-    apiVersion: traefik.containo.us/v1alpha1
+    apiVersion: traefik.io/v1alpha1
     kind: Middleware
     metadata:
       name: admin-stripprefix
@@ -745,8 +750,8 @@ with the path `/admin` stripped, e.g. to `http://<IP>:<port>/`. In this case, yo
     ```
 
     ```bash tab="CLI"
-    --entrypoints.web.address=:80
-    --entrypoints.websecure.address=:443
+    --entryPoints.web.address=:80
+    --entryPoints.websecure.address=:443
     --certificatesresolvers.myresolver.acme.email=your-email@example.com
     --certificatesresolvers.myresolver.acme.storage=acme.json
     --certificatesresolvers.myresolver.acme.tlschallenge=true
@@ -1039,7 +1044,7 @@ To activate the dashboard, you can either:
 
     !!! info "v2"
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     # dynamic configuration
     labels:
       - "traefik.http.routers.api.rule=Host(`traefik.docker.localhost`)"
@@ -1073,7 +1078,7 @@ To activate the dashboard, you can either:
       routers:
         api:
           rule: Host(`traefik.docker.localhost`)
-          entrypoints:
+          entryPoints:
             - websecure
           service: api@internal
           middlewares:

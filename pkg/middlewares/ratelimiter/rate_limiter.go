@@ -4,21 +4,22 @@ package ratelimiter
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
 	"github.com/mailgun/ttlmap"
-	"github.com/opentracing/opentracing-go/ext"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
-	"github.com/traefik/traefik/v2/pkg/log"
-	"github.com/traefik/traefik/v2/pkg/middlewares"
-	"github.com/traefik/traefik/v2/pkg/tracing"
-	"github.com/vulcand/oxy/utils"
+	"github.com/rs/zerolog/log"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/middlewares"
+	"github.com/traefik/traefik/v3/pkg/middlewares/observability"
+	"github.com/vulcand/oxy/v2/utils"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/time/rate"
 )
 
 const (
-	typeName   = "RateLimiterType"
+	typeName   = "RateLimiter"
 	maxSources = 65536
 )
 
@@ -44,8 +45,10 @@ type rateLimiter struct {
 
 // New returns a rate limiter middleware.
 func New(ctx context.Context, next http.Handler, config dynamic.RateLimit, name string) (http.Handler, error) {
-	ctxLog := log.With(ctx, log.Str(log.MiddlewareName, name), log.Str(log.MiddlewareType, typeName))
-	log.FromContext(ctxLog).Debug("Creating middleware")
+	logger := middlewares.GetLogger(ctx, name, typeName)
+	logger.Debug().Msg("Creating middleware")
+
+	ctxLog := logger.WithContext(ctx)
 
 	if config.SourceCriterion == nil ||
 		config.SourceCriterion.IPStrategy == nil &&
@@ -78,10 +81,12 @@ func New(ctx context.Context, next http.Handler, config dynamic.RateLimit, name 
 		period = time.Second
 	}
 
-	// if config.Average == 0, in that case,
-	// the value of maxDelay does not matter since the reservation will (buggily) give us a delay of 0 anyway.
+	// Initialized at rate.Inf to enforce no rate limiting when config.Average == 0
+	rtl := float64(rate.Inf)
+	// No need to set any particular value for maxDelay as the reservation's delay
+	// will be <= 0 in the Inf case (i.e. the average == 0 case).
 	var maxDelay time.Duration
-	var rtl float64
+
 	if config.Average > 0 {
 		rtl = float64(config.Average*int64(time.Second)) / float64(period)
 		// maxDelay does not scale well for rates below 1,
@@ -117,23 +122,23 @@ func New(ctx context.Context, next http.Handler, config dynamic.RateLimit, name 
 	}, nil
 }
 
-func (rl *rateLimiter) GetTracingInformation() (string, ext.SpanKindEnum) {
-	return rl.name, tracing.SpanKindNoneEnum
+func (rl *rateLimiter) GetTracingInformation() (string, string, trace.SpanKind) {
+	return rl.name, typeName, trace.SpanKindInternal
 }
 
-func (rl *rateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := middlewares.GetLoggerCtx(r.Context(), rl.name, typeName)
-	logger := log.FromContext(ctx)
+func (rl *rateLimiter) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	logger := middlewares.GetLogger(req.Context(), rl.name, typeName)
+	ctx := logger.WithContext(req.Context())
 
-	source, amount, err := rl.sourceMatcher.Extract(r)
+	source, amount, err := rl.sourceMatcher.Extract(req)
 	if err != nil {
-		logger.Errorf("could not extract source of request: %v", err)
-		http.Error(w, "could not extract source of request", http.StatusInternalServerError)
+		logger.Error().Err(err).Msg("Could not extract source of request")
+		http.Error(rw, "could not extract source of request", http.StatusInternalServerError)
 		return
 	}
 
 	if amount != 1 {
-		logger.Infof("ignoring token bucket amount > 1: %d", amount)
+		logger.Info().Msgf("ignoring token bucket amount > 1: %d", amount)
 	}
 
 	var bucket *rate.Limiter
@@ -144,41 +149,39 @@ func (rl *rateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// We Set even in the case where the source already exists,
-	// because we want to update the expiryTime everytime we get the source,
+	// because we want to update the expiryTime every time we get the source,
 	// as the expiryTime is supposed to reflect the activity (or lack thereof) on that source.
 	if err := rl.buckets.Set(source, bucket, rl.ttl); err != nil {
-		logger.Errorf("could not insert/update bucket: %v", err)
-		http.Error(w, "could not insert/update bucket", http.StatusInternalServerError)
+		logger.Error().Err(err).Msg("Could not insert/update bucket")
+		observability.SetStatusErrorf(req.Context(), "Could not insert/update bucket")
+		http.Error(rw, "could not insert/update bucket", http.StatusInternalServerError)
 		return
 	}
 
-	// time/rate is bugged, since a rate.Limiter with a 0 Limit not only allows a Reservation to take place,
-	// but also gives a 0 delay below (because of a division by zero, followed by a multiplication that flips into the negatives),
-	// regardless of the current load.
-	// However, for now we take advantage of this behavior to provide the no-limit ratelimiter when config.Average is 0.
 	res := bucket.Reserve()
 	if !res.OK() {
-		http.Error(w, "No bursty traffic allowed", http.StatusTooManyRequests)
+		observability.SetStatusErrorf(req.Context(), "No bursty traffic allowed")
+		http.Error(rw, "No bursty traffic allowed", http.StatusTooManyRequests)
 		return
 	}
 
 	delay := res.Delay()
 	if delay > rl.maxDelay {
 		res.Cancel()
-		rl.serveDelayError(ctx, w, r, delay)
+		rl.serveDelayError(ctx, rw, delay)
 		return
 	}
 
 	time.Sleep(delay)
-	rl.next.ServeHTTP(w, r)
+	rl.next.ServeHTTP(rw, req)
 }
 
-func (rl *rateLimiter) serveDelayError(ctx context.Context, w http.ResponseWriter, r *http.Request, delay time.Duration) {
-	w.Header().Set("Retry-After", fmt.Sprintf("%.0f", delay.Seconds()))
+func (rl *rateLimiter) serveDelayError(ctx context.Context, w http.ResponseWriter, delay time.Duration) {
+	w.Header().Set("Retry-After", fmt.Sprintf("%.0f", math.Ceil(delay.Seconds())))
 	w.Header().Set("X-Retry-In", delay.String())
 	w.WriteHeader(http.StatusTooManyRequests)
 
 	if _, err := w.Write([]byte(http.StatusText(http.StatusTooManyRequests))); err != nil {
-		log.FromContext(ctx).Errorf("could not serve 429: %v", err)
+		log.Ctx(ctx).Error().Err(err).Msg("Could not serve 429")
 	}
 }

@@ -4,43 +4,53 @@ on:
   pull_request:
     branches:
       - '*'
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'script/gcg/**'
 
 env:
-  GO_VERSION: 1.17
-  PRE_TARGET: ""
+  GO_VERSION: '1.23'
 
 jobs:
 
   test-unit:
-    runs-on: ubuntu-20.04
-
-    defaults:
-      run:
-        working-directory: ${{ github.workspace }}/go/src/github.com/traefik/traefik
+    runs-on: ubuntu-latest
 
     steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Set up Go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Check out code
-        uses: actions/checkout@v2
-        with:
-          path: go/src/github.com/traefik/traefik
-          fetch-depth: 0
-
-      - name: Cache Go modules
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-test-unit-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: ${{ runner.os }}-test-unit-go-
-
       - name: Avoid generating webui
-        run: mkdir -p webui/static && touch webui/static/index.html
+        run: touch webui/static/index.html
 
       - name: Tests
         run: make test-unit
+
+  test-ui-unit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: webui/.nvmrc
+          cache: 'yarn'
+          cache-dependency-path: webui/yarn.lock
+
+      - name: UI unit tests
+        run: |
+          yarn --cwd webui install
+          yarn --cwd webui test:unit:ci

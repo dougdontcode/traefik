@@ -2,7 +2,6 @@ package customerrors
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -11,29 +10,27 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/opentracing/opentracing-go/ext"
-	"github.com/sirupsen/logrus"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
-	"github.com/traefik/traefik/v2/pkg/log"
-	"github.com/traefik/traefik/v2/pkg/middlewares"
-	"github.com/traefik/traefik/v2/pkg/tracing"
-	"github.com/traefik/traefik/v2/pkg/types"
-	"github.com/vulcand/oxy/utils"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/middlewares"
+	"github.com/traefik/traefik/v3/pkg/middlewares/observability"
+	"github.com/traefik/traefik/v3/pkg/types"
+	"github.com/vulcand/oxy/v2/utils"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Compile time validation that the response recorder implements http interfaces correctly.
 var (
-	_ middlewares.Stateful = &responseRecorderWithCloseNotify{}
-	_ middlewares.Stateful = &codeCatcherWithCloseNotify{}
+	_ middlewares.Stateful = &codeModifier{}
+	_ middlewares.Stateful = &codeCatcher{}
 )
 
-const typeName = "customError"
+const typeName = "CustomError"
 
 type serviceBuilder interface {
 	BuildHTTP(ctx context.Context, serviceName string) (http.Handler, error)
 }
 
-// customErrors is a middleware that provides the custom error pages..
+// customErrors is a middleware that provides the custom error pages.
 type customErrors struct {
 	name           string
 	next           http.Handler
@@ -44,7 +41,7 @@ type customErrors struct {
 
 // New creates a new custom error pages middleware.
 func New(ctx context.Context, next http.Handler, config dynamic.ErrorPage, serviceBuilder serviceBuilder, name string) (http.Handler, error) {
-	log.FromContext(middlewares.GetLoggerCtx(ctx, name, typeName)).Debug("Creating middleware")
+	middlewares.GetLogger(ctx, name, typeName).Debug().Msg("Creating middleware")
 
 	httpCodeRanges, err := types.NewHTTPCodeRanges(config.Status)
 	if err != nil {
@@ -65,17 +62,16 @@ func New(ctx context.Context, next http.Handler, config dynamic.ErrorPage, servi
 	}, nil
 }
 
-func (c *customErrors) GetTracingInformation() (string, ext.SpanKindEnum) {
-	return c.name, tracing.SpanKindNoneEnum
+func (c *customErrors) GetTracingInformation() (string, string, trace.SpanKind) {
+	return c.name, typeName, trace.SpanKindInternal
 }
 
 func (c *customErrors) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	ctx := middlewares.GetLoggerCtx(req.Context(), c.name, typeName)
-	logger := log.FromContext(ctx)
+	logger := middlewares.GetLogger(req.Context(), c.name, typeName)
 
 	if c.backendHandler == nil {
-		logger.Error("Error pages: no backend handler.")
-		tracing.SetErrorWithEvent(req, "Error pages: no backend handler.")
+		logger.Error().Msg("No backend handler.")
+		observability.SetStatusErrorf(req.Context(), "No backend handler.")
 		c.next.ServeHTTP(rw, req)
 		return
 	}
@@ -88,44 +84,26 @@ func (c *customErrors) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	// check the recorder code against the configured http status code ranges
 	code := catcher.getCode()
-	for _, block := range c.httpCodeRanges {
-		if code < block[0] || code > block[1] {
-			continue
-		}
+	logger.Debug().Msgf("Caught HTTP Status Code %d, returning error page", code)
 
-		logger.Debugf("Caught HTTP Status Code %d, returning error page", code)
+	var query string
+	if len(c.backendQuery) > 0 {
+		query = "/" + strings.TrimPrefix(c.backendQuery, "/")
+		query = strings.ReplaceAll(query, "{status}", strconv.Itoa(code))
+		query = strings.ReplaceAll(query, "{url}", url.QueryEscape(req.URL.String()))
+	}
 
-		var query string
-		if len(c.backendQuery) > 0 {
-			query = "/" + strings.TrimPrefix(c.backendQuery, "/")
-			query = strings.ReplaceAll(query, "{status}", strconv.Itoa(code))
-		}
-
-		pageReq, err := newRequest("http://" + req.Host + query)
-		if err != nil {
-			logger.Error(err)
-			rw.WriteHeader(code)
-			_, err = fmt.Fprint(rw, http.StatusText(code))
-			if err != nil {
-				http.Error(rw, err.Error(), http.StatusInternalServerError)
-			}
-			return
-		}
-
-		recorderErrorPage := newResponseRecorder(ctx, rw)
-		utils.CopyHeaders(pageReq.Header, req.Header)
-
-		c.backendHandler.ServeHTTP(recorderErrorPage, pageReq.WithContext(req.Context()))
-
-		utils.CopyHeaders(rw.Header(), recorderErrorPage.Header())
-		rw.WriteHeader(code)
-
-		if _, err = rw.Write(recorderErrorPage.GetBody().Bytes()); err != nil {
-			logger.Error(err)
-		}
-
+	pageReq, err := newRequest("http://" + req.Host + query)
+	if err != nil {
+		logger.Error().Msgf("Unable to create error page request: %v", err)
+		observability.SetStatusErrorf(req.Context(), "Unable to create error page request: %v", err)
+		http.Error(rw, http.StatusText(code), code)
 		return
 	}
+
+	utils.CopyHeaders(pageReq.Header, req.Header)
+	c.backendHandler.ServeHTTP(newCodeModifier(rw, code),
+		pageReq.WithContext(req.Context()))
 }
 
 func newRequest(baseURL string) (*http.Request, error) {
@@ -143,52 +121,33 @@ func newRequest(baseURL string) (*http.Request, error) {
 	return req, nil
 }
 
-type responseInterceptor interface {
-	http.ResponseWriter
-	http.Flusher
-	getCode() int
-	isFilteredCode() bool
-}
-
-// codeCatcher is a response writer that detects as soon as possible whether the
-// response is a code within the ranges of codes it watches for. If it is, it
-// simply drops the data from the response. Otherwise, it forwards it directly to
-// the original client (its responseWriter) without any buffering.
+// codeCatcher is a response writer that detects as soon as possible
+// whether the response is a code within the ranges of codes it watches for.
+// If it is, it simply drops the data from the response.
+// Otherwise, it forwards it directly to the original client (its responseWriter) without any buffering.
 type codeCatcher struct {
 	headerMap          http.Header
 	code               int
 	httpCodeRanges     types.HTTPCodeRanges
-	firstWrite         bool
 	caughtFilteredCode bool
 	responseWriter     http.ResponseWriter
 	headersSent        bool
 }
 
-type codeCatcherWithCloseNotify struct {
-	*codeCatcher
-}
-
-// CloseNotify returns a channel that receives at most a
-// single value (true) when the client connection has gone away.
-func (cc *codeCatcherWithCloseNotify) CloseNotify() <-chan bool {
-	return cc.responseWriter.(http.CloseNotifier).CloseNotify()
-}
-
-func newCodeCatcher(rw http.ResponseWriter, httpCodeRanges types.HTTPCodeRanges) responseInterceptor {
-	catcher := &codeCatcher{
+func newCodeCatcher(rw http.ResponseWriter, httpCodeRanges types.HTTPCodeRanges) *codeCatcher {
+	return &codeCatcher{
 		headerMap:      make(http.Header),
 		code:           http.StatusOK, // If backend does not call WriteHeader on us, we consider it's a 200.
 		responseWriter: rw,
 		httpCodeRanges: httpCodeRanges,
-		firstWrite:     true,
 	}
-	if _, ok := rw.(http.CloseNotifier); ok {
-		return &codeCatcherWithCloseNotify{catcher}
-	}
-	return catcher
 }
 
 func (cc *codeCatcher) Header() http.Header {
+	if cc.headersSent {
+		return cc.responseWriter.Header()
+	}
+
 	if cc.headerMap == nil {
 		cc.headerMap = make(http.Header)
 	}
@@ -207,29 +166,35 @@ func (cc *codeCatcher) isFilteredCode() bool {
 }
 
 func (cc *codeCatcher) Write(buf []byte) (int, error) {
-	if !cc.firstWrite {
-		if cc.caughtFilteredCode {
-			// We don't care about the contents of the response,
-			// since we want to serve the ones from the error page,
-			// so we just drop them.
-			return len(buf), nil
-		}
-		return cc.responseWriter.Write(buf)
-	}
-	cc.firstWrite = false
-
 	// If WriteHeader was already called from the caller, this is a NOOP.
 	// Otherwise, cc.code is actually a 200 here.
 	cc.WriteHeader(cc.code)
 
 	if cc.caughtFilteredCode {
+		// We don't care about the contents of the response,
+		// since we want to serve the ones from the error page,
+		// so we just drop them.
 		return len(buf), nil
 	}
 	return cc.responseWriter.Write(buf)
 }
 
+// WriteHeader is, in the specific case of 1xx status codes, a direct call to the wrapped ResponseWriter, without marking headers as sent,
+// allowing so further calls.
 func (cc *codeCatcher) WriteHeader(code int) {
 	if cc.headersSent || cc.caughtFilteredCode {
+		return
+	}
+
+	// Handling informational headers.
+	if code >= 100 && code <= 199 {
+		// Multiple informational status codes can be used,
+		// so here the copy is not appending the values to not repeat them.
+		for k, v := range cc.Header() {
+			cc.responseWriter.Header()[k] = v
+		}
+
+		cc.responseWriter.WriteHeader(code)
 		return
 	}
 
@@ -237,15 +202,17 @@ func (cc *codeCatcher) WriteHeader(code int) {
 	for _, block := range cc.httpCodeRanges {
 		if cc.code >= block[0] && cc.code <= block[1] {
 			cc.caughtFilteredCode = true
-			break
+			// it will be up to the caller to send the headers,
+			// so it is out of our hands now.
+			return
 		}
 	}
-	// it will be up to the other response recorder to send the headers,
-	// so it is out of our hands now.
-	if cc.caughtFilteredCode {
-		return
+
+	// The copy is not appending the values,
+	// to not repeat them in case any informational status code has been written.
+	for k, v := range cc.Header() {
+		cc.responseWriter.Header()[k] = v
 	}
-	utils.CopyHeaders(cc.responseWriter.Header(), cc.Header())
 	cc.responseWriter.WriteHeader(cc.code)
 	cc.headersSent = true
 }
@@ -264,110 +231,102 @@ func (cc *codeCatcher) Flush() {
 	// Otherwise, cc.code is actually a 200 here.
 	cc.WriteHeader(cc.code)
 
+	// We don't care about the contents of the response,
+	// since we want to serve the ones from the error page,
+	// so we just don't flush.
+	// (e.g., To prevent superfluous WriteHeader on request with a
+	// `Transfer-Encoding: chunked` header).
+	if cc.caughtFilteredCode {
+		return
+	}
+
 	if flusher, ok := cc.responseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
 }
 
-type responseRecorder interface {
-	http.ResponseWriter
-	http.Flusher
-	GetCode() int
-	GetBody() *bytes.Buffer
-	IsStreamingResponseStarted() bool
+// codeModifier forwards a response back to the client,
+// while enforcing a given response code.
+type codeModifier struct {
+	code int // the code enforced in the response.
+
+	// headerSent is whether the headers have already been sent,
+	// either through Write or WriteHeader.
+	headerSent bool
+	headerMap  http.Header // the HTTP response headers from the backend.
+
+	responseWriter http.ResponseWriter
 }
 
-// newResponseRecorder returns an initialized responseRecorder.
-func newResponseRecorder(ctx context.Context, rw http.ResponseWriter) responseRecorder {
-	recorder := &responseRecorderWithoutCloseNotify{
-		HeaderMap:      make(http.Header),
-		Body:           new(bytes.Buffer),
-		Code:           http.StatusOK,
+// newCodeModifier returns a codeModifier that enforces the given code.
+func newCodeModifier(rw http.ResponseWriter, code int) *codeModifier {
+	return &codeModifier{
+		headerMap:      make(http.Header),
+		code:           code,
 		responseWriter: rw,
-		logger:         log.FromContext(ctx),
 	}
-	if _, ok := rw.(http.CloseNotifier); ok {
-		return &responseRecorderWithCloseNotify{recorder}
-	}
-	return recorder
-}
-
-// responseRecorderWithoutCloseNotify is an implementation of http.ResponseWriter that
-// records its mutations for later inspection.
-type responseRecorderWithoutCloseNotify struct {
-	Code      int           // the HTTP response code from WriteHeader
-	HeaderMap http.Header   // the HTTP response headers
-	Body      *bytes.Buffer // if non-nil, the bytes.Buffer to append written data to
-
-	responseWriter           http.ResponseWriter
-	err                      error
-	streamingResponseStarted bool
-	logger                   logrus.FieldLogger
-}
-
-type responseRecorderWithCloseNotify struct {
-	*responseRecorderWithoutCloseNotify
-}
-
-// CloseNotify returns a channel that receives at most a
-// single value (true) when the client connection has gone away.
-func (r *responseRecorderWithCloseNotify) CloseNotify() <-chan bool {
-	return r.responseWriter.(http.CloseNotifier).CloseNotify()
 }
 
 // Header returns the response headers.
-func (r *responseRecorderWithoutCloseNotify) Header() http.Header {
-	if r.HeaderMap == nil {
-		r.HeaderMap = make(http.Header)
+func (r *codeModifier) Header() http.Header {
+	if r.headerSent {
+		return r.responseWriter.Header()
 	}
 
-	return r.HeaderMap
-}
-
-func (r *responseRecorderWithoutCloseNotify) GetCode() int {
-	return r.Code
-}
-
-func (r *responseRecorderWithoutCloseNotify) GetBody() *bytes.Buffer {
-	return r.Body
-}
-
-func (r *responseRecorderWithoutCloseNotify) IsStreamingResponseStarted() bool {
-	return r.streamingResponseStarted
-}
-
-// Write always succeeds and writes to rw.Body, if not nil.
-func (r *responseRecorderWithoutCloseNotify) Write(buf []byte) (int, error) {
-	if r.err != nil {
-		return 0, r.err
+	if r.headerMap == nil {
+		r.headerMap = make(http.Header)
 	}
-	return r.Body.Write(buf)
+
+	return r.headerMap
 }
 
-// WriteHeader sets rw.Code.
-func (r *responseRecorderWithoutCloseNotify) WriteHeader(code int) {
-	r.Code = code
+// Write calls WriteHeader to send the enforced code,
+// then writes the data directly to r.responseWriter.
+func (r *codeModifier) Write(buf []byte) (int, error) {
+	r.WriteHeader(r.code)
+	return r.responseWriter.Write(buf)
+}
+
+// WriteHeader sends the headers, with the enforced code (the code in argument is always ignored),
+// if it hasn't already been done.
+// WriteHeader is, in the specific case of 1xx status codes, a direct call to the wrapped ResponseWriter, without marking headers as sent,
+// allowing so further calls.
+func (r *codeModifier) WriteHeader(code int) {
+	if r.headerSent {
+		return
+	}
+
+	// Handling informational headers.
+	if code >= 100 && code <= 199 {
+		// Multiple informational status codes can be used,
+		// so here the copy is not appending the values to not repeat them.
+		for k, v := range r.headerMap {
+			r.responseWriter.Header()[k] = v
+		}
+
+		r.responseWriter.WriteHeader(code)
+		return
+	}
+
+	for k, v := range r.headerMap {
+		r.responseWriter.Header()[k] = v
+	}
+	r.responseWriter.WriteHeader(r.code)
+	r.headerSent = true
 }
 
 // Hijack hijacks the connection.
-func (r *responseRecorderWithoutCloseNotify) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return r.responseWriter.(http.Hijacker).Hijack()
+func (r *codeModifier) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.responseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("%T is not a http.Hijacker", r.responseWriter)
+	}
+	return hijacker.Hijack()
 }
 
 // Flush sends any buffered data to the client.
-func (r *responseRecorderWithoutCloseNotify) Flush() {
-	if !r.streamingResponseStarted {
-		utils.CopyHeaders(r.responseWriter.Header(), r.Header())
-		r.responseWriter.WriteHeader(r.Code)
-		r.streamingResponseStarted = true
-	}
-
-	_, err := r.responseWriter.Write(r.Body.Bytes())
-	if err != nil {
-		r.logger.Errorf("Error writing response in responseRecorder: %v", err)
-		r.err = err
-	}
-	r.Body.Reset()
+func (r *codeModifier) Flush() {
+	r.WriteHeader(r.code)
 
 	if flusher, ok := r.responseWriter.(http.Flusher); ok {
 		flusher.Flush()

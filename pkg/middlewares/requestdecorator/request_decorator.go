@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/containous/alice"
-	"github.com/traefik/traefik/v2/pkg/types"
+	"github.com/traefik/traefik/v3/pkg/types"
 )
 
 const (
@@ -49,11 +49,16 @@ func (r *RequestDecorator) ServeHTTP(rw http.ResponseWriter, req *http.Request, 
 
 func parseHost(addr string) string {
 	if !strings.Contains(addr, ":") {
+		// IPv4 without port or empty address
 		return addr
 	}
 
+	// IPv4 with port or IPv6
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
+		if addr[0] == '[' && addr[len(addr)-1] == ']' {
+			return addr[1 : len(addr)-1]
+		}
 		return addr
 	}
 	return host

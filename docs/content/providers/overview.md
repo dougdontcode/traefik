@@ -1,3 +1,8 @@
+---
+title: "Traefik Configuration Discovery Overview"
+description: "Configuration discovery in Traefik is achieved through Providers. The providers are infrastructure components. Read the documentation to learn more."
+---
+
 # Overview
 
 Traefik's Many Friends
@@ -67,7 +72,7 @@ For the list of the providers names, see the [supported providers](#supported-pr
 
     Using the add-foo-prefix middleware from other providers:
 
-    ```yaml tab="Docker"
+    ```yaml tab="Docker & Swarm"
     your-container: #
       image: your-docker-image
 
@@ -76,8 +81,8 @@ For the list of the providers names, see the [supported providers](#supported-pr
         - "traefik.http.routers.my-container.middlewares=add-foo-prefix@file"
     ```
 
-    ```yaml tab="Kubernetes Ingress Route"
-    apiVersion: traefik.containo.us/v1alpha1
+    ```yaml tab="IngressRoute"
+    apiVersion: traefik.io/v1alpha1
     kind: IngressRoute
     metadata:
       name: ingressroutestripprefix
@@ -98,8 +103,8 @@ For the list of the providers names, see the [supported providers](#supported-pr
             # when the cross-provider syntax is used.
     ```
 
-    ```yaml tab="Kubernetes Ingress"
-    apiVersion: traefik.containo.us/v1alpha1
+    ```yaml tab="Ingress"
+    apiVersion: traefik.io/v1alpha1
     kind: Middleware
     metadata:
       name: stripprefix
@@ -134,9 +139,8 @@ Below is the list of the currently supported providers in Traefik.
 | [Kubernetes Ingress](./kubernetes-ingress.md)     | Orchestrator | Ingress              | `kubernetes`        |
 | [Kubernetes Gateway API](./kubernetes-gateway.md) | Orchestrator | Gateway API Resource | `kubernetesgateway` |
 | [Consul Catalog](./consul-catalog.md)             | Orchestrator | Label                | `consulcatalog`     |
+| [Nomad](./nomad.md)                               | Orchestrator | Label                | `nomad`             |
 | [ECS](./ecs.md)                                   | Orchestrator | Label                | `ecs`               |
-| [Marathon](./marathon.md)                         | Orchestrator | Label                | `marathon`          |
-| [Rancher](./rancher.md)                           | Orchestrator | Label                | `rancher`           |
 | [File](./file.md)                                 | Manual       | YAML/TOML format     | `file`              |
 | [Consul](./consul.md)                             | KV           | KV                   | `consul`            |
 | [Etcd](./etcd.md)                                 | KV           | KV                   | `etcd`              |
@@ -146,8 +150,8 @@ Below is the list of the currently supported providers in Traefik.
 
 !!! info "More Providers"
 
-    The current version of Traefik does not yet support every provider that Traefik v1.7 did.
-    See the [previous version (v1.7)](https://doc.traefik.io/traefik/v1.7/) for more providers.
+    The current version of Traefik does not yet support every provider that Traefik v2.11 did.
+    See the [previous version (v2.11)](https://doc.traefik.io/traefik/v2.11/) for more information.
 
 ### Configuration Reload Frequency
 
@@ -207,18 +211,20 @@ you can do so in two different ways:
 List of providers that support these features:
 
 - [Docker](./docker.md#exposedbydefault)
+- [ECS](./ecs.md#exposedbydefault)
 - [Consul Catalog](./consul-catalog.md#exposedbydefault)
-- [Rancher](./rancher.md#exposedbydefault)
-- [Marathon](./marathon.md#exposedbydefault)
+- [Nomad](./nomad.md#exposedbydefault)
 
 ### Constraints
 
 List of providers that support constraints:
 
 - [Docker](./docker.md#constraints)
+- [ECS](./ecs.md#constraints)
 - [Consul Catalog](./consul-catalog.md#constraints)
-- [Rancher](./rancher.md#constraints)
-- [Marathon](./marathon.md#constraints)
+- [Nomad](./nomad.md#constraints)
 - [Kubernetes CRD](./kubernetes-crd.md#labelselector)
 - [Kubernetes Ingress](./kubernetes-ingress.md#labelselector)
 - [Kubernetes Gateway](./kubernetes-gateway.md#labelselector)
+
+{!traefik-for-business-applications.md!}

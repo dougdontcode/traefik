@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/traefik/traefik/v2/pkg/config/runtime"
-	"github.com/traefik/traefik/v2/pkg/config/static"
-	"github.com/traefik/traefik/v2/pkg/log"
+	"github.com/rs/zerolog/log"
+	"github.com/traefik/traefik/v3/pkg/config/runtime"
+	"github.com/traefik/traefik/v3/pkg/config/static"
 )
 
 type schemeOverview struct {
@@ -61,7 +61,7 @@ func (h Handler) getOverview(rw http.ResponseWriter, request *http.Request) {
 
 	err := json.NewEncoder(rw).Encode(result)
 	if err != nil {
-		log.FromContext(request.Context()).Error(err)
+		log.Ctx(request.Context()).Error().Err(err).Send()
 		writeError(rw, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -226,7 +226,7 @@ func getProviders(conf static.Configuration) []string {
 	var providers []string
 
 	v := reflect.ValueOf(conf.Providers).Elem()
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		field := v.Field(i)
 		if field.Kind() == reflect.Ptr && field.Elem().Kind() == reflect.Struct {
 			if !field.IsNil() {
@@ -256,7 +256,7 @@ func getMetrics(conf static.Configuration) string {
 	}
 
 	v := reflect.ValueOf(conf.Metrics).Elem()
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		field := v.Field(i)
 		if field.Kind() == reflect.Ptr && field.Elem().Kind() == reflect.Struct {
 			if !field.IsNil() {
@@ -274,7 +274,7 @@ func getTracing(conf static.Configuration) string {
 	}
 
 	v := reflect.ValueOf(conf.Tracing).Elem()
-	for i := 0; i < v.NumField(); i++ {
+	for i := range v.NumField() {
 		field := v.Field(i)
 		if field.Kind() == reflect.Ptr && field.Elem().Kind() == reflect.Struct {
 			if !field.IsNil() {

@@ -1,3 +1,8 @@
+---
+title: "Traefik Installation Documentation"
+description: "There are several flavors to choose from when installing Traefik Proxy. Get started with Traefik Proxy, and read the technical documentation."
+---
+
 # Install Traefik
 
 You can install Traefik with the following flavors:
@@ -11,12 +16,12 @@ You can install Traefik with the following flavors:
 
 Choose one of the [official Docker images](https://hub.docker.com/_/traefik) and run it with one sample configuration file:
 
-* [YAML](https://raw.githubusercontent.com/traefik/traefik/v2.5/traefik.sample.yml)
-* [TOML](https://raw.githubusercontent.com/traefik/traefik/v2.5/traefik.sample.toml)
+* [YAML](https://raw.githubusercontent.com/traefik/traefik/v3.3/traefik.sample.yml)
+* [TOML](https://raw.githubusercontent.com/traefik/traefik/v3.3/traefik.sample.toml)
 
-```bash
+```shell
 docker run -d -p 8080:8080 -p 80:80 \
-    -v $PWD/traefik.yml:/etc/traefik/traefik.yml traefik:v2.5
+    -v $PWD/traefik.yml:/etc/traefik/traefik.yml traefik:v3.3
 ```
 
 For more details, go to the [Docker provider documentation](../providers/docker.md)
@@ -24,28 +29,23 @@ For more details, go to the [Docker provider documentation](../providers/docker.
 !!! tip
 
     * Prefer a fixed version than the latest that could be an unexpected version.
-    ex: `traefik:v2.1.4`
+    ex: `traefik:v3.3`
     * Docker images are based from the [Alpine Linux Official image](https://hub.docker.com/_/alpine).
     * Any orchestrator using docker images can fetch the official Traefik docker image.
 
 ## Use the Helm Chart
 
-!!! warning
-
-    The Traefik Chart from
-    [Helm's default charts repository](https://github.com/helm/charts/tree/master/stable/traefik) is still using [Traefik v1.7](https://doc.traefik.io/traefik/v1.7).
-
 Traefik can be installed in Kubernetes using the Helm chart from <https://github.com/traefik/traefik-helm-chart>.
 
 Ensure that the following requirements are met:
 
-* Kubernetes 1.14+
-* Helm version 3.x is [installed](https://helm.sh/docs/intro/install/)
+* Kubernetes 1.22+
+* Helm version 3.9+ is [installed](https://helm.sh/docs/intro/install/)
 
-Add Traefik's chart repository to Helm:
+Add Traefik Labs chart repository to Helm:
 
 ```bash
-helm repo add traefik https://helm.traefik.io/traefik
+helm repo add traefik https://traefik.github.io/charts
 ```
 
 You can update the chart repository by running:
@@ -54,7 +54,7 @@ You can update the chart repository by running:
 helm repo update
 ```
 
-And install it with the `helm` command line:
+And install it with the Helm command line:
 
 ```bash
 helm install traefik traefik/traefik
@@ -63,6 +63,9 @@ helm install traefik traefik/traefik
 !!! tip "Helm Features"
 
     All [Helm features](https://helm.sh/docs/intro/using_helm/) are supported.
+
+    Examples are provided [here](https://github.com/traefik/traefik-helm-chart/blob/master/EXAMPLES.md).
+
     For instance, installing the chart in a dedicated namespace:
 
     ```bash tab="Install in a Dedicated Namespace"
@@ -78,8 +81,7 @@ helm install traefik traefik/traefik
     as with [any helm chart](https://helm.sh/docs/intro/using_helm/#customizing-the-chart-before-installing).
     {: #helm-custom-values }
 
-    The values are not (yet) documented, but are self-explanatory:
-    you can look at the [default `values.yaml`](https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml) file to explore possibilities.
+    All parameters are documented in the default [`values.yaml`](https://github.com/traefik/traefik-helm-chart/blob/master/traefik/values.yaml).
 
     You can also set Traefik command line flags using `additionalArguments`.
     Example of installation with logging set to `DEBUG`:
@@ -96,38 +98,6 @@ helm install traefik traefik/traefik
     additionalArguments:
       - "--log.level=DEBUG"
     ```
-
-### Exposing the Traefik dashboard
-
-This HelmChart does not expose the Traefik dashboard by default, for security concerns.
-Thus, there are multiple ways to expose the dashboard.
-For instance, the dashboard access could be achieved through a port-forward :
-
-```shell
-kubectl port-forward $(kubectl get pods --selector "app.kubernetes.io/name=traefik" --output=name) 9000:9000
-```
-
-Accessible with the url: http://127.0.0.1:9000/dashboard/
-
-Another way would be to apply your own configuration, for instance,
-by defining and applying an IngressRoute CRD (`kubectl apply -f dashboard.yaml`):
-
-```yaml
-# dashboard.yaml
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRoute
-metadata:
-  name: dashboard
-spec:
-  entryPoints:
-    - web
-  routes:
-    - match: Host(`traefik.localhost`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
-      kind: Rule
-      services:
-        - name: api@internal
-          kind: TraefikService
-```
 
 ## Use the Binary Distribution
 
@@ -173,3 +143,5 @@ And run it:
 ## Compile your Binary from the Sources
 
 All the details are available in the [Contributing Guide](../contributing/building-testing.md)
+
+{!traefik-for-business-applications.md!}

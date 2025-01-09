@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/traefik/traefik/v2/pkg/config/dynamic"
-	"github.com/traefik/traefik/v2/pkg/testhelpers"
+	"github.com/traefik/traefik/v3/pkg/config/dynamic"
+	"github.com/traefik/traefik/v3/pkg/testhelpers"
 )
 
 func TestBasicAuthFail(t *testing.T) {
@@ -167,6 +169,50 @@ func TestBasicAuthHeaderPresent(t *testing.T) {
 	assert.Equal(t, "traefik\n", string(body))
 }
 
+func TestBasicAuthConcurrentHashOnce(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "traefik")
+	})
+	auth := dynamic.BasicAuth{
+		Users: []string{"test:$2a$04$.8sTYfcxbSplCtoxt5TdJOgpBYkarKtZYsYfYxQ1edbYRuO1DNi0e"},
+	}
+
+	authMiddleware, err := NewBasic(context.Background(), next, auth, "authName")
+	require.NoError(t, err)
+
+	hashCount := 0
+	ba := authMiddleware.(*basicAuth)
+	ba.checkSecret = func(password, secret string) bool {
+		hashCount++
+		// delay to ensure the second request arrives
+		time.Sleep(time.Millisecond)
+		return true
+	}
+
+	ts := httptest.NewServer(authMiddleware)
+	defer ts.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	for range 2 {
+		go func() {
+			defer wg.Done()
+			req := testhelpers.MustNewRequest(http.MethodGet, ts.URL, nil)
+			req.SetBasicAuth("test", "test")
+
+			res, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+
+			assert.Equal(t, http.StatusOK, res.StatusCode, "they should be equal")
+		}()
+	}
+
+	wg.Wait()
+	assert.Equal(t, 1, hashCount)
+}
+
 func TestBasicAuthUsersFromFile(t *testing.T) {
 	testCases := []struct {
 		desc            string
@@ -210,7 +256,6 @@ func TestBasicAuthUsersFromFile(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -218,7 +263,7 @@ func TestBasicAuthUsersFromFile(t *testing.T) {
 			usersFile, err := os.CreateTemp(t.TempDir(), "auth-users")
 			require.NoError(t, err)
 
-			_, err = usersFile.Write([]byte(test.userFileContent))
+			_, err = usersFile.WriteString(test.userFileContent)
 			require.NoError(t, err)
 
 			// Creates the configuration for our Authenticator

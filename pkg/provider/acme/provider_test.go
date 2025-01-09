@@ -4,11 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"testing"
+	"time"
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/stretchr/testify/assert"
-	"github.com/traefik/traefik/v2/pkg/safe"
-	"github.com/traefik/traefik/v2/pkg/types"
+	"github.com/traefik/traefik/v3/pkg/safe"
+	"github.com/traefik/traefik/v3/pkg/types"
 )
 
 func TestGetUncheckedCertificates(t *testing.T) {
@@ -25,7 +26,7 @@ func TestGetUncheckedCertificates(t *testing.T) {
 	domainSafe := &safe.Safe{}
 	domainSafe.Set(domainMap)
 
-	// FIXME Add a test for DefaultCertificate
+	// TODO Add a test for DefaultCertificate
 	testCases := []struct {
 		desc             string
 		dynamicCerts     *safe.Safe
@@ -165,7 +166,6 @@ func TestGetUncheckedCertificates(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -187,7 +187,7 @@ func TestGetUncheckedCertificates(t *testing.T) {
 	}
 }
 
-func TestGetValidDomain(t *testing.T) {
+func TestProvider_sanitizeDomains(t *testing.T) {
 	testCases := []struct {
 		desc            string
 		domains         types.Domain
@@ -213,14 +213,7 @@ func TestGetValidDomain(t *testing.T) {
 			desc:            "no domain",
 			domains:         types.Domain{},
 			dnsChallenge:    nil,
-			expectedErr:     "unable to generate a certificate in ACME provider when no domain is given",
-			expectedDomains: nil,
-		},
-		{
-			desc:            "no DNSChallenge",
-			domains:         types.Domain{Main: "*.traefik.wtf", SANs: []string{"foo.traefik.wtf"}},
-			dnsChallenge:    nil,
-			expectedErr:     "unable to generate a wildcard certificate in ACME provider for domain \"*.traefik.wtf,foo.traefik.wtf\" : ACME needs a DNSChallenge",
+			expectedErr:     "no domain was given",
 			expectedDomains: nil,
 		},
 		{
@@ -247,13 +240,12 @@ func TestGetValidDomain(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
 			acmeProvider := Provider{Configuration: &Configuration{DNSChallenge: test.dnsChallenge}}
 
-			domains, err := acmeProvider.getValidDomains(context.Background(), test.domains)
+			domains, err := acmeProvider.sanitizeDomains(context.Background(), test.domains)
 
 			if len(test.expectedErr) > 0 {
 				assert.EqualError(t, err, test.expectedErr, "Unexpected error.")
@@ -429,7 +421,6 @@ func TestDeleteUnnecessaryDomains(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -503,7 +494,6 @@ func TestIsAccountMatchingCaServer(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -579,16 +569,76 @@ func TestInitAccount(t *testing.T) {
 		},
 	}
 	for _, test := range testCases {
-		test := test
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
 			acmeProvider := Provider{account: test.account, Configuration: &Configuration{Email: test.email, KeyType: test.keyType}}
 
 			actualAccount, err := acmeProvider.initAccount(context.Background())
-			assert.Nil(t, err, "Init account in error")
+			assert.NoError(t, err, "Init account in error")
 			assert.Equal(t, test.expectedAccount.Email, actualAccount.Email, "unexpected email account")
 			assert.Equal(t, test.expectedAccount.KeyType, actualAccount.KeyType, "unexpected keyType account")
+		})
+	}
+}
+
+func Test_getCertificateRenewDurations(t *testing.T) {
+	testCases := []struct {
+		desc                  string
+		certificatesDurations int
+		expectRenewPeriod     time.Duration
+		expectRenewInterval   time.Duration
+	}{
+		{
+			desc:                  "Less than 24 Hours certificates: 20 minutes renew period, 1 minutes renew interval",
+			certificatesDurations: 1,
+			expectRenewPeriod:     time.Minute * 20,
+			expectRenewInterval:   time.Minute,
+		},
+		{
+			desc:                  "1 Year certificates: 4 months renew period, 1 week renew interval",
+			certificatesDurations: 24 * 365,
+			expectRenewPeriod:     time.Hour * 24 * 30 * 4,
+			expectRenewInterval:   time.Hour * 24 * 7,
+		},
+		{
+			desc:                  "265 Days certificates: 30 days renew period, 1 day renew interval",
+			certificatesDurations: 24 * 265,
+			expectRenewPeriod:     time.Hour * 24 * 30,
+			expectRenewInterval:   time.Hour * 24,
+		},
+		{
+			desc:                  "90 Days certificates: 30 days renew period, 1 day renew interval",
+			certificatesDurations: 24 * 90,
+			expectRenewPeriod:     time.Hour * 24 * 30,
+			expectRenewInterval:   time.Hour * 24,
+		},
+		{
+			desc:                  "30 Days certificates: 10 days renew period, 12 hour renew interval",
+			certificatesDurations: 24 * 30,
+			expectRenewPeriod:     time.Hour * 24 * 10,
+			expectRenewInterval:   time.Hour * 12,
+		},
+		{
+			desc:                  "7 Days certificates: 1 days renew period, 1 hour renew interval",
+			certificatesDurations: 24 * 7,
+			expectRenewPeriod:     time.Hour * 24,
+			expectRenewInterval:   time.Hour,
+		},
+		{
+			desc:                  "24 Hours certificates: 6 hours renew period, 10 minutes renew interval",
+			certificatesDurations: 24,
+			expectRenewPeriod:     time.Hour * 6,
+			expectRenewInterval:   time.Minute * 10,
+		},
+	}
+	for _, test := range testCases {
+		t.Run(test.desc, func(t *testing.T) {
+			t.Parallel()
+
+			renewPeriod, renewInterval := getCertificateRenewDurations(test.certificatesDurations)
+			assert.Equal(t, test.expectRenewPeriod, renewPeriod)
+			assert.Equal(t, test.expectRenewInterval, renewInterval)
 		})
 	}
 }

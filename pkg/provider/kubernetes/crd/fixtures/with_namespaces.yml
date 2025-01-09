@@ -1,47 +1,62 @@
 ---
-kind: Endpoints
-apiVersion: v1
+kind: EndpointSlice
+apiVersion: discovery.k8s.io/v1
 metadata:
-  name: whoami6
+  name: whoami6-abc
   namespace: baz
+  labels:
+    kubernetes.io/service-name: whoami6
 
-subsets:
+addressType: IPv4
+ports:
+  - name: web
+    port: 8080
+endpoints:
   - addresses:
-      - ip: 10.10.0.5
-      - ip: 10.10.0.6
-    ports:
-      - name: web
-        port: 8080
+      - 10.10.0.5
+      - 10.10.0.6
+    conditions:
+      ready: true
 
 ---
-kind: Endpoints
-apiVersion: v1
+kind: EndpointSlice
+apiVersion: discovery.k8s.io/v1
 metadata:
-  name: whoami5
+  name: whoami5-abc
   namespace: foo
+  labels:
+    kubernetes.io/service-name: whoami5
 
-subsets:
+addressType: IPv4
+ports:
+  - name: web
+    port: 8080
+endpoints:
   - addresses:
-      - ip: 10.10.0.3
-      - ip: 10.10.0.4
-    ports:
-      - name: web
-        port: 8080
+      - 10.10.0.3
+      - 10.10.0.4
+    conditions:
+      ready: true
 
 ---
-kind: Endpoints
-apiVersion: v1
+kind: EndpointSlice
+apiVersion: discovery.k8s.io/v1
 metadata:
-  name: whoami4
+  name: whoami4-abc
   namespace: foo
+  labels:
+    kubernetes.io/service-name: whoami4
 
-subsets:
+addressType: IPv4
+ports:
+  - name: web
+    port: 8080
+endpoints:
   - addresses:
-      - ip: 10.10.0.1
-      - ip: 10.10.0.2
-    ports:
-      - name: web
-        port: 8080
+      - 10.10.0.1
+      - 10.10.0.2
+    conditions:
+      ready: true
 
 ---
 apiVersion: v1
@@ -89,7 +104,7 @@ spec:
     task: whoami4
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TraefikService
 metadata:
   name: mirror1
@@ -111,7 +126,7 @@ spec:
         namespace: bar
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TraefikService
 metadata:
   name: wrr2
@@ -126,7 +141,7 @@ spec:
         port: 8080
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TraefikService
 metadata:
   name: mirror2
@@ -150,7 +165,7 @@ spec:
         namespace: foo
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TraefikService
 metadata:
   name: mirror3
@@ -176,7 +191,7 @@ spec:
 
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TraefikService
 metadata:
   name: mirror4
@@ -200,7 +215,7 @@ spec:
         namespace: foo
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TraefikService
 metadata:
   name: mirrored
@@ -218,7 +233,7 @@ spec:
         namespace: foo
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: TraefikService
 metadata:
   name: wrr1
@@ -239,7 +254,7 @@ spec:
         namespace: bar
 
 ---
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: test.route
